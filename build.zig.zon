@@ -1,0 +1,12 @@
+.{
+    .name = .devilwm,
+    .version = "0.15.2",
+    .dependencies = .{
+        .river = .{
+            .url = "git+https://codeberg.org/river/river.git#2c60bb304226b2a097ed9fb1526f7f480e435b8f",
+            .hash = "river-0.4.0-dev-_G6NjiFSCwDIThCkeOtuzlQ7tsqrio3C9dap6ox6R-b5",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0x98a04417f4f8b6ae,
+}
