@@ -68,7 +68,7 @@ swaybg -i "$WALLPAPER_FILE" -m fill >/dev/null 2>&1 &
 EOF
     return 0
   fi
-  printf ":"
+  printf ""
 }
 
 WALLPAPER_CMD="${WALLPAPER_CMD:-$(default_wallpaper_cmd)}"
@@ -85,7 +85,11 @@ echo "==> starting nested river inside current Wayland session"
 echo "    river:   $RIVER_BIN"
 echo "    devilwm: $DEVILWM_BIN"
 echo "    app:     $APP_CMD"
-echo "    wallpaper: $WALLPAPER_FILE"
+if command -v swaybg >/dev/null 2>&1 && [ -f "$WALLPAPER_FILE" ]; then
+  echo "    wallpaper: $WALLPAPER_FILE (via swaybg)"
+else
+  echo "    wallpaper: disabled (swaybg missing or file not found)"
+fi
 echo "    app_count(default): $APP_COUNT"
 echo "    renderer: vulkan (forced)"
 echo "    logs:    $RUN_LOG_DIR"
