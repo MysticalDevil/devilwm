@@ -4,7 +4,11 @@ set -eu
 DEVILWM_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 WORKSPACE_DIR="$(CDPATH= cd -- "$DEVILWM_DIR/.." && pwd)"
 RIVER_DIR="${RIVER_DIR:-$WORKSPACE_DIR/river}"
-WALLPAPER_FILE="${WALLPAPER_FILE:-$DEVILWM_DIR/assets/default-wallpaper.svg}"
+DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.png"
+if [ ! -f "$DEFAULT_WALLPAPER" ] && [ -f "$DEVILWM_DIR/assets/default-wallpaper.svg" ]; then
+  DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.svg"
+fi
+WALLPAPER_FILE="${WALLPAPER_FILE:-$DEFAULT_WALLPAPER}"
 RIVER_BIN="$RIVER_DIR/zig-out/bin/river"
 DEVILWM_BIN="$DEVILWM_DIR/zig-out/bin/devilwm"
 
@@ -54,7 +58,6 @@ fi
 APP_COUNT="${APP_COUNT:-4}"
 APP_STAGGER_SEC="${APP_STAGGER_SEC:-0.25}"
 WALLPAPER_DELAY_SEC="${WALLPAPER_DELAY_SEC:-0.5}"
-SWAYBG_LOG="${SWAYBG_LOG:-$DEVILWM_DIR/logs/swaybg.log}"
 WALLPAPER_FALLBACK_COLOR="${WALLPAPER_FALLBACK_COLOR:-#9b111e}"
 
 default_app_cmd() {
@@ -80,6 +83,7 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)"
 RUN_LOG_DIR="$LOG_DIR/$RUN_ID"
 DEVILWM_LOG="$RUN_LOG_DIR/devilwm.log"
 RIVER_LOG="$RUN_LOG_DIR/river.log"
+SWAYBG_LOG="${SWAYBG_LOG:-$RUN_LOG_DIR/swaybg.log}"
 
 # Keep per-run logs to simplify protocol debugging.
 mkdir -p "$RUN_LOG_DIR"

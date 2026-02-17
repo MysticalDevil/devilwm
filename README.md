@@ -121,13 +121,14 @@ Useful env vars:
 - `APP_COUNT` (default `4`)
 - `APP_STAGGER_SEC` (default `0.25`)
 - `SKIP_BUILD=1` (skip rebuild)
-- `WALLPAPER_FILE=/path/to/wallpaper` (default: `assets/default-wallpaper.svg`)
+- `WALLPAPER_FILE=/path/to/wallpaper` (default: `assets/default-wallpaper.png`)
 - `WALLPAPER_CMD='...'` (override wallpaper startup command)
 - `WALLPAPER_DELAY_SEC=0.5` (delay before starting swaybg to avoid startup race)
 - `SWAYBG_LOG=/tmp/swaybg.log` (capture swaybg stderr/stdout for troubleshooting)
 - `WALLPAPER_FALLBACK_COLOR=#9b111e` (used when image wallpaper fails to load)
 
-By default the nested script uses the built-in devil emoji wallpaper (`assets/default-wallpaper.svg`).
+By default the nested script uses the built-in devil emoji wallpaper (`assets/default-wallpaper.png`).
+Note: many swaybg builds support only PNG files unless compiled with gdk-pixbuf.
 If `swaybg` is available, it is launched automatically; otherwise wallpaper setup is skipped.
 
 ## Run In Your Session
