@@ -58,26 +58,39 @@ const State = struct {
     focused_window: ?*c.river_window_v1 = null,
 
     fn deinit(state: *State) void {
+        state.focused_window = null;
+        state.phase = .idle;
+
         var i: usize = 0;
         while (i < state.windows.items.len) : (i += 1) {
             c.river_node_v1_destroy(state.windows.items[i].node);
             c.river_window_v1_destroy(state.windows.items[i].obj);
         }
         state.windows.deinit(state.allocator);
+        state.windows = .{};
 
         i = 0;
         while (i < state.outputs.items.len) : (i += 1) {
             c.river_output_v1_destroy(state.outputs.items[i].obj);
         }
         state.outputs.deinit(state.allocator);
+        state.outputs = .{};
 
         i = 0;
         while (i < state.seats.items.len) : (i += 1) {
             c.river_seat_v1_destroy(state.seats.items[i].obj);
         }
         state.seats.deinit(state.allocator);
+        state.seats = .{};
 
-        if (state.wm) |wm| c.river_window_manager_v1_destroy(wm);
+        if (state.wm) |wm| {
+            c.river_window_manager_v1_destroy(wm);
+            state.wm = null;
+        }
+        if (state.registry) |registry| {
+            c.wl_registry_destroy(registry);
+            state.registry = null;
+        }
     }
 
     fn beginPhase(state: *State, phase: Phase) bool {
@@ -175,6 +188,36 @@ const State = struct {
             if (state.seats.items[i].obj == seat_obj) return i;
         }
         return null;
+    }
+
+    fn removeWindow(state: *State, window_obj: *c.river_window_v1) bool {
+        const idx = state.findWindowIndex(window_obj) orelse return false;
+        const tracked = state.windows.items[idx];
+
+        if (state.focused_window == window_obj) state.focused_window = null;
+
+        c.river_node_v1_destroy(tracked.node);
+        c.river_window_v1_destroy(tracked.obj);
+        _ = state.windows.swapRemove(idx);
+
+        if (state.focused_window == null and state.windows.items.len > 0) {
+            state.focused_window = state.windows.items[0].obj;
+        }
+        return true;
+    }
+
+    fn removeOutput(state: *State, output_obj: *c.river_output_v1) bool {
+        const idx = state.findOutputIndex(output_obj) orelse return false;
+        c.river_output_v1_destroy(state.outputs.items[idx].obj);
+        _ = state.outputs.swapRemove(idx);
+        return true;
+    }
+
+    fn removeSeat(state: *State, seat_obj: *c.river_seat_v1) bool {
+        const idx = state.findSeatIndex(seat_obj) orelse return false;
+        c.river_seat_v1_destroy(state.seats.items[idx].obj);
+        _ = state.seats.swapRemove(idx);
+        return true;
     }
 };
 
@@ -348,17 +391,8 @@ fn windowClosed(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) voi
     const window_obj = window orelse return;
     log.info("window closed", .{});
 
-    const idx = state.findWindowIndex(window_obj) orelse return;
-    const w = state.windows.items[idx];
-
-    if (state.focused_window == window_obj) state.focused_window = null;
-
-    c.river_node_v1_destroy(w.node);
-    c.river_window_v1_destroy(w.obj);
-    _ = state.windows.swapRemove(idx);
-
-    if (state.focused_window == null and state.windows.items.len > 0) {
-        state.focused_window = state.windows.items[0].obj;
+    if (!state.removeWindow(window_obj)) {
+        log.warn("window closed for unknown window", .{});
     }
 }
 
@@ -376,9 +410,9 @@ fn outputRemoved(data: ?*anyopaque, output: ?*c.river_output_v1) callconv(.c) vo
     const output_obj = output orelse return;
     log.info("output removed", .{});
 
-    const idx = state.findOutputIndex(output_obj) orelse return;
-    c.river_output_v1_destroy(state.outputs.items[idx].obj);
-    _ = state.outputs.swapRemove(idx);
+    if (!state.removeOutput(output_obj)) {
+        log.warn("output removed for unknown output", .{});
+    }
 }
 
 fn outputPosition(data: ?*anyopaque, output: ?*c.river_output_v1, x: i32, y: i32) callconv(.c) void {
@@ -406,9 +440,9 @@ fn seatRemoved(data: ?*anyopaque, seat: ?*c.river_seat_v1) callconv(.c) void {
     const seat_obj = seat orelse return;
     log.info("seat removed", .{});
 
-    const idx = state.findSeatIndex(seat_obj) orelse return;
-    c.river_seat_v1_destroy(state.seats.items[idx].obj);
-    _ = state.seats.swapRemove(idx);
+    if (!state.removeSeat(seat_obj)) {
+        log.warn("seat removed for unknown seat", .{});
+    }
 }
 
 fn seatWindowInteraction(data: ?*anyopaque, _: ?*c.river_seat_v1, window: ?*c.river_window_v1) callconv(.c) void {
