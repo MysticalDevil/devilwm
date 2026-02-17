@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-RIVER_DIR="$ROOT_DIR/river"
-DEVILWM_DIR="$ROOT_DIR/devilwm"
+DEVILWM_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+WORKSPACE_DIR="$(CDPATH= cd -- "$DEVILWM_DIR/.." && pwd)"
+RIVER_DIR="${RIVER_DIR:-$WORKSPACE_DIR/river}"
 RIVER_BIN="$RIVER_DIR/zig-out/bin/river"
 DEVILWM_BIN="$DEVILWM_DIR/zig-out/bin/devilwm"
 
