@@ -3,6 +3,7 @@ const log = std.log;
 const build_options = @import("build_options");
 const protocol = @import("wm/protocol.zig");
 const env = @import("wm/env.zig");
+const noop = @import("wm/noop.zig");
 const types = @import("wm/types.zig");
 const c = protocol.c;
 
@@ -907,19 +908,6 @@ fn seatPointerPosition(data: ?*anyopaque, seat: ?*c.river_seat_v1, x: i32, y: i3
     state.seats.items[idx].has_pointer_position = true;
 }
 
-// Wayland listeners may not be NULL for events the compositor can emit.
-fn noopWindowDimensionsHint(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32, _: i32, _: i32, _: i32) callconv(.c) void {}
-fn noopWindowString(_: ?*anyopaque, _: ?*c.river_window_v1, _: [*c]const u8) callconv(.c) void {}
-fn noopWindowDecorationHint(_: ?*anyopaque, _: ?*c.river_window_v1, _: u32) callconv(.c) void {}
-fn noopWindowMenuReq(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32, _: i32) callconv(.c) void {}
-fn noopWindowSimple(_: ?*anyopaque, _: ?*c.river_window_v1) callconv(.c) void {}
-fn noopWindowPid(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32) callconv(.c) void {}
-fn noopOutputWlOutput(_: ?*anyopaque, _: ?*c.river_output_v1, _: u32) callconv(.c) void {}
-fn noopSeatWlSeat(_: ?*anyopaque, _: ?*c.river_seat_v1, _: u32) callconv(.c) void {}
-fn noopSeatPointerEnter(_: ?*anyopaque, _: ?*c.river_seat_v1, _: ?*c.river_window_v1) callconv(.c) void {}
-fn noopSeatPointerLeave(_: ?*anyopaque, _: ?*c.river_seat_v1) callconv(.c) void {}
-fn noopSeatShellSurfaceInteraction(_: ?*anyopaque, _: ?*c.river_seat_v1, _: ?*c.river_shell_surface_v1) callconv(.c) void {}
-
 fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
     const state = getState(data);
     const registry_obj = registry orelse return;
@@ -955,37 +943,37 @@ const wm_listener = c.river_window_manager_v1_listener{
 
 const window_listener = c.river_window_v1_listener{
     .closed = windowClosed,
-    .dimensions_hint = noopWindowDimensionsHint,
+    .dimensions_hint = noop.windowDimensionsHint,
     .dimensions = windowDimensions,
-    .app_id = noopWindowString,
-    .title = noopWindowString,
+    .app_id = noop.windowString,
+    .title = noop.windowString,
     .parent = windowParent,
-    .decoration_hint = noopWindowDecorationHint,
+    .decoration_hint = noop.windowDecorationHint,
     .pointer_move_requested = windowMoveRequested,
     .pointer_resize_requested = windowResizeRequested,
-    .show_window_menu_requested = noopWindowMenuReq,
+    .show_window_menu_requested = noop.windowMenuReq,
     .maximize_requested = windowMaximizeRequested,
     .unmaximize_requested = windowUnmaximizeRequested,
     .fullscreen_requested = windowFullscreenRequested,
     .exit_fullscreen_requested = windowExitFullscreenRequested,
-    .minimize_requested = noopWindowSimple,
-    .unreliable_pid = noopWindowPid,
+    .minimize_requested = noop.windowSimple,
+    .unreliable_pid = noop.windowPid,
 };
 
 const output_listener = c.river_output_v1_listener{
     .removed = outputRemoved,
-    .wl_output = noopOutputWlOutput,
+    .wl_output = noop.outputWlOutput,
     .position = outputPosition,
     .dimensions = outputDimensions,
 };
 
 const seat_listener = c.river_seat_v1_listener{
     .removed = seatRemoved,
-    .wl_seat = noopSeatWlSeat,
-    .pointer_enter = noopSeatPointerEnter,
-    .pointer_leave = noopSeatPointerLeave,
+    .wl_seat = noop.seatWlSeat,
+    .pointer_enter = noop.seatPointerEnter,
+    .pointer_leave = noop.seatPointerLeave,
     .window_interaction = seatWindowInteraction,
-    .shell_surface_interaction = noopSeatShellSurfaceInteraction,
+    .shell_surface_interaction = noop.seatShellSurfaceInteraction,
     .op_delta = seatOpDelta,
     .op_release = seatOpRelease,
     .pointer_position = seatPointerPosition,
