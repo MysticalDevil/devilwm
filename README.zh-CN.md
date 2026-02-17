@@ -115,13 +115,14 @@ cd devilwm
 - `APP_COUNT`（默认 `4`）
 - `APP_STAGGER_SEC`（默认 `0.25`）
 - `SKIP_BUILD=1`（跳过重新编译）
-- `WALLPAPER_FILE=/path/to/wallpaper`（默认 `assets/default-wallpaper.png`）
+- `WALLPAPER_FILE=/path/to/wallpaper`（默认 `assets/default-wallpaper.svg`）
 - `WALLPAPER_CMD='...'`（覆盖壁纸启动命令）
 - `WALLPAPER_DELAY_SEC=0.5`（启动 swaybg 前延时，避免启动竞态）
 - `SWAYBG_LOG=/tmp/swaybg.log`（记录 swaybg 输出，便于排查）
 - `WALLPAPER_FALLBACK_COLOR=#9b111e`（图片壁纸加载失败时使用）
 
-默认会使用内置恶魔 emoji 壁纸（`assets/default-wallpaper.png`）。
+默认会使用内置恶魔 emoji 壁纸（`assets/default-wallpaper.svg`）。
+如果 SVG 加载失败，可设置 `WALLPAPER_FILE=assets/default-wallpaper.png` 或使用回退纯色。
 说明：很多发行版的 swaybg 若未启用 gdk-pixbuf，仅支持 PNG。
 如果系统有 `swaybg`，脚本会自动启动它设置壁纸；没有则跳过壁纸设置。
 

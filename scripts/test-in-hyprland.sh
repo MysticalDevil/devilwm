@@ -4,9 +4,9 @@ set -eu
 DEVILWM_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 WORKSPACE_DIR="$(CDPATH= cd -- "$DEVILWM_DIR/.." && pwd)"
 RIVER_DIR="${RIVER_DIR:-$WORKSPACE_DIR/river}"
-DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.png"
-if [ ! -f "$DEFAULT_WALLPAPER" ] && [ -f "$DEVILWM_DIR/assets/default-wallpaper.svg" ]; then
-  DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.svg"
+DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.svg"
+if [ ! -f "$DEFAULT_WALLPAPER" ] && [ -f "$DEVILWM_DIR/assets/default-wallpaper.png" ]; then
+  DEFAULT_WALLPAPER="$DEVILWM_DIR/assets/default-wallpaper.png"
 fi
 WALLPAPER_FILE="${WALLPAPER_FILE:-$DEFAULT_WALLPAPER}"
 RIVER_BIN="$RIVER_DIR/zig-out/bin/river"
