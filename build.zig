@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(ctl);
+    b.installFile("config/default.lua", "share/devilwm/default-config.lua");
 
     const run_artifact = b.addRunArtifact(exe);
     if (b.args) |args| run_artifact.addArgs(args);

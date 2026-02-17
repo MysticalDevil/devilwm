@@ -6,6 +6,8 @@ const c = @cImport({
     @cInclude("lua5.1/lualib.h");
 });
 
+const bundled_default_config = @embedFile("default_config.lua");
+
 pub const LayoutMode = enum {
     i3,
     monocle,
@@ -122,18 +124,23 @@ pub fn load(allocator: std.mem.Allocator) !RuntimeConfig {
     var cfg = try RuntimeConfig.initDefault(allocator);
     errdefer cfg.deinit();
 
-    const path = try resolveConfigPath(allocator);
-    defer allocator.free(path);
+    const resolved = try resolveConfigPath(allocator);
+    defer allocator.free(resolved.path);
 
-    if (std.fs.cwd().access(path, .{})) |_| {} else |_| {
-        return cfg;
+    if (std.fs.cwd().access(resolved.path, .{})) |_| {} else |_| {
+        if (resolved.should_seed_default) {
+            ensureDefaultConfigFile(resolved.path);
+        }
+        if (std.fs.cwd().access(resolved.path, .{})) |_| {} else |_| {
+            return cfg;
+        }
     }
 
     const L = c.luaL_newstate() orelse return error.OutOfMemory;
     defer c.lua_close(L);
     c.luaL_openlibs(L);
 
-    if (c.luaL_dofile(L, path.ptr)) {
+    if (c.luaL_dofile(L, resolved.path.ptr)) {
         return error.ConfigLuaLoadFailed;
     }
 
@@ -305,6 +312,12 @@ fn parsePointerBindings(L: ?*c.lua_State, allocator: std.mem.Allocator, cfg: *Ru
                 action.cmd = try dup(allocator, cfg.default_app);
             }
         }
+        if (action.kind == .layout_set) {
+            if (try dupFieldOptional(L, allocator, -1, "layout")) |layout_s| {
+                defer allocator.free(layout_s);
+                action.layout = parseLayoutMode(layout_s);
+            }
+        }
 
         try cfg.pointer_bindings.append(allocator, .{
             .mods = parseModifiers(mods_s),
@@ -404,15 +417,28 @@ fn intFieldOr(L: ?*c.lua_State, idx: c_int, field: [*:0]const u8, default_value:
     return @intCast(c.lua_tointeger(L, -1));
 }
 
-fn resolveConfigPath(allocator: std.mem.Allocator) ![]u8 {
-    if (std.posix.getenv("DEVILWM_CONFIG")) |p| return dup(allocator, p);
+const ResolvedConfigPath = struct {
+    path: []u8,
+    should_seed_default: bool,
+};
+
+fn resolveConfigPath(allocator: std.mem.Allocator) !ResolvedConfigPath {
+    if (std.posix.getenv("DEVILWM_CONFIG")) |p| {
+        return .{ .path = try dup(allocator, p), .should_seed_default = false };
+    }
     if (std.posix.getenv("XDG_CONFIG_HOME")) |base| {
-        return std.fmt.allocPrint(allocator, "{s}/devilwm/config.lua", .{base});
+        return .{
+            .path = try std.fmt.allocPrint(allocator, "{s}/devilwm/config.lua", .{base}),
+            .should_seed_default = true,
+        };
     }
     if (std.posix.getenv("HOME")) |home| {
-        return std.fmt.allocPrint(allocator, "{s}/.config/devilwm/config.lua", .{home});
+        return .{
+            .path = try std.fmt.allocPrint(allocator, "{s}/.config/devilwm/config.lua", .{home}),
+            .should_seed_default = true,
+        };
     }
-    return dup(allocator, "./devilwm.lua");
+    return .{ .path = try dup(allocator, "./devilwm.lua"), .should_seed_default = false };
 }
 
 fn defaultControlPath(allocator: std.mem.Allocator) ![]u8 {
@@ -427,6 +453,12 @@ fn dup(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     const out = try allocator.alloc(u8, s.len);
     @memcpy(out, s);
     return out;
+}
+
+fn ensureDefaultConfigFile(path: []const u8) void {
+    const dir = std.fs.path.dirname(path) orelse return;
+    std.fs.cwd().makePath(dir) catch return;
+    std.fs.cwd().writeFile(.{ .sub_path = path, .data = bundled_default_config }) catch return;
 }
 
 fn freeActions(allocator: std.mem.Allocator, items: anytype) void {
