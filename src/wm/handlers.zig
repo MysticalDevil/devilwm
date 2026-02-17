@@ -8,6 +8,8 @@ const types = @import("types.zig");
 
 const c = protocol.c;
 const State = state_mod.State;
+const Output = state_mod.Output;
+const Seat = state_mod.Seat;
 const KeyBindingRuntime = state_mod.KeyBindingRuntime;
 const PointerBindingRuntime = state_mod.PointerBindingRuntime;
 
@@ -56,6 +58,11 @@ fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
     state.pollControlCommands();
     state.enablePendingBindings();
     state.executePendingActions();
+    if (state.outputs.items.len > 0) {
+        if (state.outputs.items[0].layer_output) |layer_output| {
+            c.river_layer_shell_output_v1_set_default(layer_output);
+        }
+    }
     layout.applyManageLayout(state);
     c.river_window_manager_v1_manage_finish(wm_obj);
 }
@@ -126,8 +133,13 @@ fn wmOutput(data: ?*anyopaque, _: ?*c.river_window_manager_v1, output: ?*c.river
 
     _ = c.river_output_v1_add_listener(output_obj, &output_listener, data);
 
-    state.outputs.append(state.allocator, .{ .obj = output_obj }) catch {
+    var output_state = types.Output{ .obj = output_obj };
+    attachLayerOutput(state, &output_state);
+    state.outputs.append(state.allocator, output_state) catch {
         log.err("out of memory while tracking output", .{});
+        if (output_state.layer_output) |layer_output| {
+            c.river_layer_shell_output_v1_destroy(layer_output);
+        }
         c.river_output_v1_destroy(output_obj);
         return;
     };
@@ -147,9 +159,13 @@ fn wmSeat(data: ?*anyopaque, _: ?*c.river_window_manager_v1, seat: ?*c.river_sea
             seat_state.xkb_seat = c.river_xkb_bindings_v1_get_seat(xkb, seat_obj);
         }
     }
+    attachLayerSeat(state, &seat_state);
 
     state.seats.append(state.allocator, seat_state) catch {
         log.err("out of memory while tracking seat", .{});
+        if (seat_state.layer_seat) |layer_seat| {
+            c.river_layer_shell_seat_v1_destroy(layer_seat);
+        }
         c.river_seat_v1_destroy(seat_obj);
         return;
     };
@@ -377,6 +393,19 @@ fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, inter
         state.xkb = bindTyped(c.river_xkb_bindings_v1, registry_obj, name, &c.river_xkb_bindings_v1_interface, @min(version, @as(u32, 2)));
         return;
     }
+    if (std.mem.eql(u8, iface_name, "river_layer_shell_v1")) {
+        if (state.layer_shell != null) return;
+        state.layer_shell = bindTyped(c.river_layer_shell_v1, registry_obj, name, &c.river_layer_shell_v1_interface, @min(version, @as(u32, 1)));
+        if (state.layer_shell == null) return;
+
+        for (state.outputs.items) |*output| {
+            attachLayerOutput(state, output);
+        }
+        for (state.seats.items) |*seat| {
+            attachLayerSeat(state, seat);
+        }
+        return;
+    }
 }
 
 fn registryGlobalRemove(_: ?*anyopaque, _: ?*c.wl_registry, _: u32) callconv(.c) void {}
@@ -438,6 +467,30 @@ const pointer_binding_listener = c.river_pointer_binding_v1_listener{
     .released = pointerBindingReleased,
 };
 
+fn layerOutputNonExclusiveArea(_: ?*anyopaque, _: ?*c.river_layer_shell_output_v1, _: i32, _: i32, _: i32, _: i32) callconv(.c) void {}
+
+const layer_output_listener = c.river_layer_shell_output_v1_listener{
+    .non_exclusive_area = layerOutputNonExclusiveArea,
+};
+
+fn layerSeatFocusExclusive(data: ?*anyopaque, _: ?*c.river_layer_shell_seat_v1) callconv(.c) void {
+    const state = getState(data);
+    state.focused_window = null;
+}
+
+fn layerSeatFocusNonExclusive(_: ?*anyopaque, _: ?*c.river_layer_shell_seat_v1) callconv(.c) void {}
+
+fn layerSeatFocusNone(data: ?*anyopaque, _: ?*c.river_layer_shell_seat_v1) callconv(.c) void {
+    const state = getState(data);
+    state.reconcileFocus();
+}
+
+const layer_seat_listener = c.river_layer_shell_seat_v1_listener{
+    .focus_exclusive = layerSeatFocusExclusive,
+    .focus_non_exclusive = layerSeatFocusNonExclusive,
+    .focus_none = layerSeatFocusNone,
+};
+
 const output_listener = c.river_output_v1_listener{
     .removed = outputRemoved,
     .wl_output = noop.outputWlOutput,
@@ -461,3 +514,23 @@ pub const registry_listener = c.wl_registry_listener{
     .global = registryGlobal,
     .global_remove = registryGlobalRemove,
 };
+
+fn attachLayerOutput(state: *State, output: *Output) void {
+    if (output.layer_output != null) return;
+    const layer_shell = state.layer_shell orelse return;
+
+    const obj = c.river_layer_shell_v1_get_output(layer_shell, output.obj);
+    if (obj == null) return;
+    _ = c.river_layer_shell_output_v1_add_listener(obj.?, &layer_output_listener, null);
+    output.layer_output = obj.?;
+}
+
+fn attachLayerSeat(state: *State, seat: *Seat) void {
+    if (seat.layer_seat != null) return;
+    const layer_shell = state.layer_shell orelse return;
+
+    const obj = c.river_layer_shell_v1_get_seat(layer_shell, seat.obj);
+    if (obj == null) return;
+    _ = c.river_layer_shell_seat_v1_add_listener(obj.?, &layer_seat_listener, state);
+    seat.layer_seat = obj.?;
+}

@@ -45,6 +45,7 @@ pub const State = struct {
     registry: ?*c.wl_registry = null,
     wm: ?*c.river_window_manager_v1 = null,
     xkb: ?*c.river_xkb_bindings_v1 = null,
+    layer_shell: ?*c.river_layer_shell_v1 = null,
 
     running: bool = true,
     phase: Phase = .idle,
@@ -101,6 +102,9 @@ pub const State = struct {
 
         i = 0;
         while (i < state.outputs.items.len) : (i += 1) {
+            if (state.outputs.items[i].layer_output) |layer_output| {
+                c.river_layer_shell_output_v1_destroy(layer_output);
+            }
             c.river_output_v1_destroy(state.outputs.items[i].obj);
         }
         state.outputs.deinit(state.allocator);
@@ -111,6 +115,9 @@ pub const State = struct {
             if (state.seats.items[i].xkb_seat) |xkb_seat| {
                 c.river_xkb_bindings_seat_v1_destroy(xkb_seat);
             }
+            if (state.seats.items[i].layer_seat) |layer_seat| {
+                c.river_layer_shell_seat_v1_destroy(layer_seat);
+            }
             c.river_seat_v1_destroy(state.seats.items[i].obj);
         }
         state.seats.deinit(state.allocator);
@@ -119,6 +126,10 @@ pub const State = struct {
         if (state.xkb) |xkb| {
             c.river_xkb_bindings_v1_destroy(xkb);
             state.xkb = null;
+        }
+        if (state.layer_shell) |layer_shell| {
+            c.river_layer_shell_v1_destroy(layer_shell);
+            state.layer_shell = null;
         }
         if (state.wm) |wm| {
             c.river_window_manager_v1_destroy(wm);
@@ -331,6 +342,9 @@ pub const State = struct {
             }
         }
 
+        if (state.outputs.items[idx].layer_output) |layer_output| {
+            c.river_layer_shell_output_v1_destroy(layer_output);
+        }
         c.river_output_v1_destroy(state.outputs.items[idx].obj);
         _ = state.outputs.swapRemove(idx);
         state.ensureWindowOutputAssignments();
@@ -342,6 +356,9 @@ pub const State = struct {
 
         if (state.seats.items[idx].xkb_seat) |xkb_seat| {
             c.river_xkb_bindings_seat_v1_destroy(xkb_seat);
+        }
+        if (state.seats.items[idx].layer_seat) |layer_seat| {
+            c.river_layer_shell_seat_v1_destroy(layer_seat);
         }
         c.river_seat_v1_destroy(state.seats.items[idx].obj);
         _ = state.seats.swapRemove(idx);

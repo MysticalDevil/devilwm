@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const river_dep = b.dependency("river", .{});
     const wm_protocol_xml = river_dep.path("protocol/river-window-management-v1.xml");
     const xkb_protocol_xml = river_dep.path("protocol/river-xkb-bindings-v1.xml");
+    const layer_protocol_xml = river_dep.path("protocol/river-layer-shell-v1.xml");
     const options = b.addOptions();
     options.addOption(bool, "verbose_logs", verbose_logs);
 
@@ -27,6 +28,14 @@ pub fn build(b: *std.Build) void {
     gen_xkb_private.addFileArg(xkb_protocol_xml);
     const xkb_protocol_code = gen_xkb_private.addOutputFileArg("river-xkb-bindings-v1-client-protocol.c");
 
+    const gen_layer_header = b.addSystemCommand(&.{ "wayland-scanner", "client-header" });
+    gen_layer_header.addFileArg(layer_protocol_xml);
+    const layer_protocol_header = gen_layer_header.addOutputFileArg("river-layer-shell-v1-client-protocol.h");
+
+    const gen_layer_private = b.addSystemCommand(&.{ "wayland-scanner", "private-code" });
+    gen_layer_private.addFileArg(layer_protocol_xml);
+    const layer_protocol_code = gen_layer_private.addOutputFileArg("river-layer-shell-v1-client-protocol.c");
+
     const exe = b.addExecutable(.{
         .name = "devilwm",
         .root_module = b.createModule(.{
@@ -42,12 +51,17 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary(lua_lib);
     exe.addIncludePath(wm_protocol_header.dirname());
     exe.addIncludePath(xkb_protocol_header.dirname());
+    exe.addIncludePath(layer_protocol_header.dirname());
     exe.addCSourceFile(.{
         .file = wm_protocol_code,
         .flags = &.{"-std=c99"},
     });
     exe.addCSourceFile(.{
         .file = xkb_protocol_code,
+        .flags = &.{"-std=c99"},
+    });
+    exe.addCSourceFile(.{
+        .file = layer_protocol_code,
         .flags = &.{"-std=c99"},
     });
 

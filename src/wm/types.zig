@@ -70,6 +70,7 @@ pub const Window = struct {
 
 pub const Output = struct {
     obj: *c.river_output_v1,
+    layer_output: ?*c.river_layer_shell_output_v1 = null,
     x: i32 = 0,
     y: i32 = 0,
     width: i32 = protocol.fallback_width,
@@ -86,6 +87,7 @@ pub const Output = struct {
 pub const Seat = struct {
     obj: *c.river_seat_v1,
     xkb_seat: ?*c.river_xkb_bindings_seat_v1 = null,
+    layer_seat: ?*c.river_layer_shell_seat_v1 = null,
     pointer_x: i32 = 0,
     pointer_y: i32 = 0,
     has_pointer_position: bool = false,
