@@ -119,6 +119,7 @@ cd devilwm
 - `WALLPAPER_CMD='...'`（覆盖壁纸启动命令）
 - `WALLPAPER_DELAY_SEC=0.5`（启动 swaybg 前延时，避免启动竞态）
 - `SWAYBG_LOG=/tmp/swaybg.log`（记录 swaybg 输出，便于排查）
+- `WALLPAPER_FALLBACK_COLOR=#9b111e`（图片壁纸加载失败时使用）
 
 默认会使用内置恶魔 emoji 壁纸（`assets/default-wallpaper.svg`）。
 如果系统有 `swaybg`，脚本会自动启动它设置壁纸；没有则跳过壁纸设置。

@@ -125,6 +125,7 @@ Useful env vars:
 - `WALLPAPER_CMD='...'` (override wallpaper startup command)
 - `WALLPAPER_DELAY_SEC=0.5` (delay before starting swaybg to avoid startup race)
 - `SWAYBG_LOG=/tmp/swaybg.log` (capture swaybg stderr/stdout for troubleshooting)
+- `WALLPAPER_FALLBACK_COLOR=#9b111e` (used when image wallpaper fails to load)
 
 By default the nested script uses the built-in devil emoji wallpaper (`assets/default-wallpaper.svg`).
 If `swaybg` is available, it is launched automatically; otherwise wallpaper setup is skipped.
