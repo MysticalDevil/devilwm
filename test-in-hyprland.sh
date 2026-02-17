@@ -46,10 +46,20 @@ pick_term() {
 
 TERM_CMD="$(pick_term || true)"
 if [ -z "$TERM_CMD" ]; then
-  TERM_CMD="sh -lc 'echo no terminal found; sleep 3'"
+  echo "error: no supported terminal found (foot/kitty/alacritty/wezterm/xterm)" >&2
+  exit 1
 fi
 
-APP_CMD="${APP_CMD:-$TERM_CMD}"
+APP_COUNT="${APP_COUNT:-4}"
+APP_STAGGER_SEC="${APP_STAGGER_SEC:-0.25}"
+
+default_app_cmd() {
+  cat <<EOF
+sh -lc 'i=0; while [ "\$i" -lt "$APP_COUNT" ]; do "$TERM_CMD" >/dev/null 2>&1 & i=\$((i+1)); sleep "$APP_STAGGER_SEC"; done'
+EOF
+}
+
+APP_CMD="${APP_CMD:-$(default_app_cmd)}"
 LOG_DIR="${LOG_DIR:-$DEVILWM_DIR/logs}"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 RUN_LOG_DIR="$LOG_DIR/$RUN_ID"
@@ -63,6 +73,7 @@ echo "==> starting nested river inside current Wayland session"
 echo "    river:   $RIVER_BIN"
 echo "    devilwm: $DEVILWM_BIN"
 echo "    app:     $APP_CMD"
+echo "    app_count(default): $APP_COUNT"
 echo "    logs:    $RUN_LOG_DIR"
 
 exec env WLR_BACKENDS=wayland \
