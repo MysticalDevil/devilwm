@@ -38,4 +38,16 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run devilwm");
     run_step.dependOn(&run_artifact.step);
+
+    const protocol_timing_test = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/protocol_timing_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_protocol_timing_test = b.addRunArtifact(protocol_timing_test);
+
+    const test_step = b.step("test", "Run protocol timing tests");
+    test_step.dependOn(&run_protocol_timing_test.step);
 }
