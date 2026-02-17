@@ -1,23 +1,36 @@
 # devilwm
 
-A minimal Wayland window manager client for river's `river-window-management-v1` protocol.
+Experimental Wayland WM client for river's `river-window-management-v1` protocol.
 
 Language:
 - English (this document)
 - Simplified Chinese: `README.zh-CN.md`
 
-## Features
+## Warning
 
-- i3-like default tiled layout (equal-width columns)
-- Additional layouts: `master_stack`, `vertical_stack`, `monocle`
-- Multi-output window assignment and layout
-- Fullscreen workflow (`fullscreen_requested` / `exit_fullscreen_requested`)
-- Floating dialogs/transient windows (`parent` hint)
+- This codebase is primarily implemented by Codex, not handwritten by a human developer.
+- This project is an experiment/prototype.
+- Not recommended for daily-use desktop environments.
+
+## What It Provides
+
+- i3-like default tiling (equal-width columns)
+- Other layouts: `master_stack`, `vertical_stack`, `monocle`
+- Multi-output assignment and layout
+- Fullscreen and floating/transient support
 - Interactive move/resize via seat operations
-- Key bindings via `river_xkb_bindings_v1`
-- Pointer bindings via `river_seat_v1.get_pointer_binding`
-- Lua-based configuration (`lua5.1` by default)
-- Runtime command interface with `devilctl`
+- Key bindings (`river_xkb_bindings_v1`) and pointer bindings
+- Lua config (`lua5.1` by default)
+- Runtime control tool: `devilctl`
+
+## Requirements
+
+Install these on your machine:
+- `zig` (0.15.x recommended)
+- `wayland-scanner`
+- Wayland client development files (`libwayland-client`)
+- Lua 5.1 development files (`lua5.1`)
+- A compositor/session where river protocols are available (for real run), or nested test prerequisites for `scripts/test-in-hyprland.sh`
 
 ## Build
 
@@ -26,31 +39,57 @@ cd devilwm
 zig build
 ```
 
-Optional build flags:
+Optional flags:
 - `-Dverbose-logs=true`
 - `-Dlua-lib=<name>` (default: `lua5.1`)
 
-## Run Nested Test
+Binaries are produced at:
+- `zig-out/bin/devilwm`
+- `zig-out/bin/devilctl`
+
+## Quick Test (Nested)
 
 ```bash
 cd devilwm
 ./scripts/test-in-hyprland.sh
 ```
 
-Environment:
-- `APP_COUNT` default `4`
-- `APP_STAGGER_SEC` default `0.25`
-- `SKIP_BUILD=1` to skip rebuilding
+Useful env vars:
+- `APP_COUNT` (default `4`)
+- `APP_STAGGER_SEC` (default `0.25`)
+- `SKIP_BUILD=1` (skip rebuild)
 
-## Configuration (Lua)
+## Run In Your Session
 
-Search order:
+1. Build first: `zig build`
+2. Start `devilwm` in a session where `river-window-management-v1` is exposed.
+3. Use `devilctl` to send runtime commands.
+
+Examples:
+```bash
+./zig-out/bin/devilctl focus next
+./zig-out/bin/devilctl layout monocle
+./zig-out/bin/devilctl spawn foot
+```
+
+Supported commands:
+- `focus next|prev`
+- `swap next|prev`
+- `layout next|i3|monocle|master|vertical`
+- `close`
+- `spawn <shell command>`
+
+Note: runtime commands are consumed during manage cycles.
+
+## Lua Configuration
+
+Config search order:
 1. `$DEVILWM_CONFIG`
 2. `$XDG_CONFIG_HOME/devilwm/config.lua`
 3. `$HOME/.config/devilwm/config.lua`
 4. `./devilwm.lua`
 
-Use `config/default.lua` as a starting point.
+Start from `config/default.lua`.
 
 Supported top-level fields:
 - `layout = "i3" | "master_stack" | "vertical_stack" | "monocle"`
@@ -68,23 +107,3 @@ Binding action names:
 - `focus_next`, `focus_prev`
 - `swap_next`, `swap_prev`
 - `layout_next`, `layout_set`
-
-## Runtime Commands (`devilctl`)
-
-`devilctl` appends commands to the control file.
-
-```bash
-cd devilwm
-./zig-out/bin/devilctl focus next
-./zig-out/bin/devilctl layout monocle
-./zig-out/bin/devilctl spawn foot
-```
-
-Supported commands:
-- `focus next|prev`
-- `swap next|prev`
-- `layout next|i3|monocle|master|vertical`
-- `close`
-- `spawn <shell command>`
-
-Note: commands are consumed during manage cycles.
