@@ -2,6 +2,8 @@
 
 Experimental Wayland WM client for river's `river-window-management-v1` protocol.
 
+Chinese docs: `README.zh-CN.md`
+
 Language:
 - English (this document)
 - Simplified Chinese: `README.zh-CN.md`
