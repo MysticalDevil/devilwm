@@ -1,5 +1,6 @@
 const std = @import("std");
 const log = std.log;
+const build_options = @import("build_options");
 
 const c = @cImport({
     @cInclude("wayland-client.h");
@@ -10,6 +11,10 @@ const max_proto_version: u32 = 3;
 // Nested sessions can transiently report no output geometry; keep windows visible.
 const fallback_width: i32 = 1280;
 const fallback_height: i32 = 720;
+
+pub const std_options: std.Options = .{
+    .log_level = if (build_options.verbose_logs) .debug else .warn,
+};
 
 const Phase = enum {
     idle,

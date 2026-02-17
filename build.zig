@@ -3,8 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const verbose_logs = b.option(bool, "verbose-logs", "Enable verbose runtime logging") orelse false;
     const river_dep = b.dependency("river", .{});
     const protocol_xml = river_dep.path("protocol/river-window-management-v1.xml");
+    const options = b.addOptions();
+    options.addOption(bool, "verbose_logs", verbose_logs);
 
     const gen_header = b.addSystemCommand(&.{ "wayland-scanner", "client-header" });
     gen_header.addFileArg(protocol_xml);
@@ -22,6 +25,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    exe.root_module.addOptions("build_options", options);
 
     exe.linkLibC();
     exe.linkSystemLibrary("wayland-client");
