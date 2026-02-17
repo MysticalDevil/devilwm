@@ -22,7 +22,7 @@
 ## 依赖
 
 请在你的机器上安装：
-- `zig`（建议 0.15.x）
+- `zig`（强制 0.15.x）
 - `wayland-scanner`
 - Wayland 客户端开发库（`libwayland-client`）
 - Lua 5.1 开发库（`lua5.1`）

@@ -28,7 +28,7 @@ Language:
 ## Requirements
 
 Install these on your machine:
-- `zig` (0.15.x recommended)
+- `zig` (0.15.x required)
 - `wayland-scanner`
 - Wayland client development files (`libwayland-client`)
 - Lua 5.1 development files (`lua5.1`)
