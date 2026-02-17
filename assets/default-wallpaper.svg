@@ -5,15 +5,26 @@
       <stop offset="55%" stop-color="#9B111E" />
       <stop offset="100%" stop-color="#FF4500" />
     </linearGradient>
+    <radialGradient id="faceShade" cx="38%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#B155FF" />
+      <stop offset="100%" stop-color="#6A16D9" />
+    </radialGradient>
   </defs>
   <rect x="0" y="0" width="1920" height="1080" fill="url(#bg)" />
-  <circle cx="960" cy="540" r="270" fill="#00000022" />
-  <text
-    x="960"
-    y="560"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    font-size="380"
-    font-family="Noto Color Emoji, Apple Color Emoji, Segoe UI Emoji, sans-serif"
-  >😈</text>
+  <circle cx="960" cy="540" r="290" fill="#00000026" />
+
+  <g transform="translate(960 540)">
+    <path d="M-175,-160 L-215,-250 L-120,-205 L-95,-135 Z" fill="#A01B2E"/>
+    <path d="M175,-160 L215,-250 L120,-205 L95,-135 Z" fill="#A01B2E"/>
+    <circle cx="0" cy="0" r="210" fill="url(#faceShade)" />
+
+    <ellipse cx="-80" cy="-20" rx="52" ry="38" fill="#FFD54A"/>
+    <ellipse cx="80" cy="-20" rx="52" ry="38" fill="#FFD54A"/>
+    <ellipse cx="-80" cy="-20" rx="20" ry="24" fill="#3A0B72"/>
+    <ellipse cx="80" cy="-20" rx="20" ry="24" fill="#3A0B72"/>
+
+    <path d="M-120,90 C-70,150,70,150,120,90 C70,175,-70,175,-120,90 Z" fill="#330011"/>
+    <path d="M-64,96 L-30,146 L-4,96 Z" fill="#F7F7F7"/>
+    <path d="M4,96 L30,146 L64,96 Z" fill="#F7F7F7"/>
+  </g>
 </svg>
