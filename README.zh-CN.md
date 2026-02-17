@@ -26,6 +26,8 @@
 - `wayland-scanner`
 - Wayland 客户端开发库（`libwayland-client`）
 - Lua 5.1 开发库（`lua5.1`）
+- `river`（用于嵌套测试脚本/目标协议环境）
+- `swaybg`（用于嵌套测试脚本设置壁纸）
 - 可提供 river 协议的会话环境（真实运行）或 `scripts/test-in-hyprland.sh` 所需的嵌套测试环境
 
 ### 常见发行版安装命令
@@ -35,27 +37,33 @@
 Debian / Ubuntu（`apt`）：
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config
+sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg river
 ```
 
 Fedora（`dnf`，RPM 系）：
 ```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
 
 RHEL / Rocky / AlmaLinux（`dnf`，RPM 系）：
 ```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
 
 Arch Linux（`pacman`）：
 ```bash
-sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols
+sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols swaybg river
 ```
 
 Gentoo（`emerge`）：
 ```bash
-sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf
+sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-wm/river gui-apps/swaybg
+```
+
+如果发行版仓库里没有 `river`，可以使用同级工作区中的 `../river`：
+```bash
+cd ../river
+zig build -Dman-pages=false
 ```
 
 ## 编译

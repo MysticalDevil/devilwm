@@ -32,6 +32,8 @@ Install these on your machine:
 - `wayland-scanner`
 - Wayland client development files (`libwayland-client`)
 - Lua 5.1 development files (`lua5.1`)
+- `river` (for nested test script / target protocol environment)
+- `swaybg` (for wallpaper in nested test script)
 - A compositor/session where river protocols are available (for real run), or nested test prerequisites for `scripts/test-in-hyprland.sh`
 
 ### Common Distro Packages
@@ -41,27 +43,33 @@ Package names can vary slightly by distro release. The following sets are the us
 Debian / Ubuntu (`apt`):
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config
+sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg river
 ```
 
 Fedora (`dnf`, RPM family):
 ```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
 
 RHEL / Rocky / AlmaLinux (`dnf`, RPM family):
 ```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
 
 Arch Linux (`pacman`):
 ```bash
-sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols
+sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols swaybg river
 ```
 
 Gentoo (`emerge`):
 ```bash
-sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf
+sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-wm/river gui-apps/swaybg
+```
+
+If your distro repo does not provide `river`, use the sibling workspace checkout (`../river`) with:
+```bash
+cd ../river
+zig build -Dman-pages=false
 ```
 
 ## Build
