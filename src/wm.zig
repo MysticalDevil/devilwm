@@ -2,6 +2,7 @@ const std = @import("std");
 const log = std.log;
 const build_options = @import("build_options");
 
+const config = @import("wm/config.zig");
 const protocol = @import("wm/protocol.zig");
 const env = @import("wm/env.zig");
 const handlers = @import("wm/handlers.zig");
@@ -21,11 +22,13 @@ pub fn run() !void {
         if (leak == .leak) @panic("memory leak detected");
     }
 
-    var state = State{
-        .allocator = gpa.allocator(),
-        .layout_mode = env.parseLayoutModeEnv(),
-        .focus_on_interaction = env.parseFocusOnInteractionEnv(),
-    };
+    var cfg = try config.load(gpa.allocator());
+    // Env vars override config for quick experiments.
+    if (env.parseLayoutModeEnv()) |mode| cfg.layout_mode = @enumFromInt(@intFromEnum(mode));
+    if (env.parseFocusOnInteractionEnv()) |focus| cfg.focus_on_interaction = focus;
+
+    var state = State.init(gpa.allocator(), cfg);
+    state.setupControlPath();
 
     state.display = c.wl_display_connect(null);
     if (state.display == null) {

@@ -8,7 +8,8 @@ const types = @import("types.zig");
 
 const c = protocol.c;
 const State = state_mod.State;
-const OpKind = types.OpKind;
+const KeyBindingRuntime = state_mod.KeyBindingRuntime;
+const PointerBindingRuntime = state_mod.PointerBindingRuntime;
 
 fn getState(data: ?*anyopaque) *State {
     return @ptrCast(@alignCast(data.?));
@@ -52,6 +53,9 @@ fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
         @tagName(state.layout_mode),
     });
 
+    state.pollControlCommands();
+    state.enablePendingBindings();
+    state.executePendingActions();
     layout.applyManageLayout(state);
     c.river_window_manager_v1_manage_finish(wm_obj);
 }
@@ -112,6 +116,7 @@ fn wmWindow(data: ?*anyopaque, _: ?*c.river_window_manager_v1, window: ?*c.river
         return;
     };
 
+    state.applyRulesForWindow(state.windows.items.len - 1);
     state.focused_window = window_obj;
 }
 
@@ -136,10 +141,56 @@ fn wmSeat(data: ?*anyopaque, _: ?*c.river_window_manager_v1, seat: ?*c.river_sea
 
     _ = c.river_seat_v1_add_listener(seat_obj, &seat_listener, data);
 
-    state.seats.append(state.allocator, .{ .obj = seat_obj }) catch {
+    var seat_state = types.Seat{ .obj = seat_obj };
+    if (state.xkb) |xkb| {
+        if (c.river_xkb_bindings_v1_get_version(xkb) >= 2) {
+            seat_state.xkb_seat = c.river_xkb_bindings_v1_get_seat(xkb, seat_obj);
+        }
+    }
+
+    state.seats.append(state.allocator, seat_state) catch {
         log.err("out of memory while tracking seat", .{});
         c.river_seat_v1_destroy(seat_obj);
+        return;
     };
+
+    if (state.xkb) |xkb| {
+        for (state.config.key_bindings.items) |binding_cfg| {
+            const binding_obj = c.river_xkb_bindings_v1_get_xkb_binding(xkb, seat_obj, binding_cfg.keysym, binding_cfg.mods);
+            if (binding_obj == null) continue;
+
+            const runtime = state.allocator.create(KeyBindingRuntime) catch continue;
+            runtime.* = .{
+                .state = state,
+                .obj = binding_obj.?,
+                .action = binding_cfg.action,
+                .pending_enable = true,
+            };
+            _ = c.river_xkb_binding_v1_add_listener(binding_obj.?, &xkb_binding_listener, runtime);
+            state.key_runtime.append(state.allocator, runtime) catch {
+                c.river_xkb_binding_v1_destroy(binding_obj.?);
+                state.allocator.destroy(runtime);
+            };
+        }
+    }
+
+    for (state.config.pointer_bindings.items) |binding_cfg| {
+        const binding_obj = c.river_seat_v1_get_pointer_binding(seat_obj, binding_cfg.button, binding_cfg.mods);
+        if (binding_obj == null) continue;
+
+        const runtime = state.allocator.create(PointerBindingRuntime) catch continue;
+        runtime.* = .{
+            .state = state,
+            .obj = binding_obj.?,
+            .action = binding_cfg.action,
+            .pending_enable = true,
+        };
+        _ = c.river_pointer_binding_v1_add_listener(binding_obj.?, &pointer_binding_listener, runtime);
+        state.pointer_runtime.append(state.allocator, runtime) catch {
+            c.river_pointer_binding_v1_destroy(binding_obj.?);
+            state.allocator.destroy(runtime);
+        };
+    }
 }
 
 fn windowClosed(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) void {
@@ -158,6 +209,18 @@ fn windowDimensions(data: ?*anyopaque, window: ?*c.river_window_v1, width: i32, 
     const idx = state.findWindowIndex(window_obj) orelse return;
     state.windows.items[idx].width = width;
     state.windows.items[idx].height = height;
+}
+
+fn windowAppId(data: ?*anyopaque, window: ?*c.river_window_v1, app_id: [*c]const u8) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    state.updateWindowAppId(window_obj, app_id);
+}
+
+fn windowTitle(data: ?*anyopaque, window: ?*c.river_window_v1, title: [*c]const u8) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    state.updateWindowTitle(window_obj, title);
 }
 
 fn windowParent(data: ?*anyopaque, window: ?*c.river_window_v1, parent: ?*c.river_window_v1) callconv(.c) void {
@@ -298,17 +361,22 @@ fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, inter
     if (interface == null) return;
 
     const iface_name = std.mem.span(interface);
-    if (!std.mem.eql(u8, iface_name, "river_window_manager_v1")) return;
-    if (state.wm != null) return;
-
-    state.wm = bindTyped(c.river_window_manager_v1, registry_obj, name, &c.river_window_manager_v1_interface, chooseVersion(version));
-    if (state.wm == null) {
-        log.err("failed to bind river_window_manager_v1", .{});
-        state.running = false;
+    if (std.mem.eql(u8, iface_name, "river_window_manager_v1")) {
+        if (state.wm != null) return;
+        state.wm = bindTyped(c.river_window_manager_v1, registry_obj, name, &c.river_window_manager_v1_interface, chooseVersion(version));
+        if (state.wm == null) {
+            log.err("failed to bind river_window_manager_v1", .{});
+            state.running = false;
+            return;
+        }
+        _ = c.river_window_manager_v1_add_listener(state.wm.?, &wm_listener, data);
         return;
     }
-
-    _ = c.river_window_manager_v1_add_listener(state.wm.?, &wm_listener, data);
+    if (std.mem.eql(u8, iface_name, "river_xkb_bindings_v1")) {
+        if (state.xkb != null) return;
+        state.xkb = bindTyped(c.river_xkb_bindings_v1, registry_obj, name, &c.river_xkb_bindings_v1_interface, @min(version, @as(u32, 2)));
+        return;
+    }
 }
 
 fn registryGlobalRemove(_: ?*anyopaque, _: ?*c.wl_registry, _: u32) callconv(.c) void {}
@@ -329,8 +397,8 @@ const window_listener = c.river_window_v1_listener{
     .closed = windowClosed,
     .dimensions_hint = noop.windowDimensionsHint,
     .dimensions = windowDimensions,
-    .app_id = noop.windowString,
-    .title = noop.windowString,
+    .app_id = windowAppId,
+    .title = windowTitle,
     .parent = windowParent,
     .decoration_hint = noop.windowDecorationHint,
     .pointer_move_requested = windowMoveRequested,
@@ -342,6 +410,32 @@ const window_listener = c.river_window_v1_listener{
     .exit_fullscreen_requested = windowExitFullscreenRequested,
     .minimize_requested = noop.windowSimple,
     .unreliable_pid = noop.windowPid,
+};
+
+fn xkbBindingPressed(data: ?*anyopaque, _: ?*c.river_xkb_binding_v1) callconv(.c) void {
+    const runtime: *KeyBindingRuntime = @ptrCast(@alignCast(data.?));
+    runtime.state.queueAction(runtime.action, false);
+}
+
+fn xkbBindingReleased(_: ?*anyopaque, _: ?*c.river_xkb_binding_v1) callconv(.c) void {}
+fn xkbBindingStopRepeat(_: ?*anyopaque, _: ?*c.river_xkb_binding_v1) callconv(.c) void {}
+
+const xkb_binding_listener = c.river_xkb_binding_v1_listener{
+    .pressed = xkbBindingPressed,
+    .released = xkbBindingReleased,
+    .stop_repeat = xkbBindingStopRepeat,
+};
+
+fn pointerBindingPressed(data: ?*anyopaque, _: ?*c.river_pointer_binding_v1) callconv(.c) void {
+    const runtime: *PointerBindingRuntime = @ptrCast(@alignCast(data.?));
+    runtime.state.queueAction(runtime.action, false);
+}
+
+fn pointerBindingReleased(_: ?*anyopaque, _: ?*c.river_pointer_binding_v1) callconv(.c) void {}
+
+const pointer_binding_listener = c.river_pointer_binding_v1_listener{
+    .pressed = pointerBindingPressed,
+    .released = pointerBindingReleased,
 };
 
 const output_listener = c.river_output_v1_listener{

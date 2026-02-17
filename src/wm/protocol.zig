@@ -1,6 +1,7 @@
 pub const c = @cImport({
     @cInclude("wayland-client.h");
     @cInclude("river-window-management-v1-client-protocol.h");
+    @cInclude("river-xkb-bindings-v1-client-protocol.h");
 });
 
 pub const max_proto_version: u32 = 3;

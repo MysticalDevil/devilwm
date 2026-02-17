@@ -7,7 +7,6 @@ const c = protocol.c;
 const fallback_width = protocol.fallback_width;
 
 const State = state_mod.State;
-const LayoutMode = types.LayoutMode;
 const LayoutRect = types.LayoutRect;
 
 fn applyLayoutForOutput(state: *State, output_obj: ?*c.river_output_v1, rect: LayoutRect) void {

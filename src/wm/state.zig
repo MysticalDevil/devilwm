@@ -1,27 +1,51 @@
 const std = @import("std");
 const log = std.log;
 const protocol = @import("protocol.zig");
+const config_mod = @import("config.zig");
 const types = @import("types.zig");
 
 const c = protocol.c;
 const Phase = types.Phase;
-const LayoutMode = types.LayoutMode;
+pub const LayoutMode = types.LayoutMode;
 const LayoutRect = types.LayoutRect;
-const OpKind = types.OpKind;
-const Window = types.Window;
-const Output = types.Output;
-const Seat = types.Seat;
+pub const OpKind = types.OpKind;
+pub const Window = types.Window;
+pub const Output = types.Output;
+pub const Seat = types.Seat;
 
 const fallback_width = protocol.fallback_width;
 const fallback_height = protocol.fallback_height;
 const min_floating_width = protocol.min_floating_width;
 const min_floating_height = protocol.min_floating_height;
 
+pub const QueuedAction = struct {
+    action: config_mod.Action,
+    owned_cmd: bool = false,
+};
+
+pub const KeyBindingRuntime = struct {
+    state: *State,
+    obj: *c.river_xkb_binding_v1,
+    action: config_mod.Action,
+    pending_enable: bool = true,
+};
+
+pub const PointerBindingRuntime = struct {
+    state: *State,
+    obj: *c.river_pointer_binding_v1,
+    action: config_mod.Action,
+    pending_enable: bool = true,
+};
+
 pub const State = struct {
     allocator: std.mem.Allocator,
+    config: config_mod.RuntimeConfig,
+
     display: ?*c.wl_display = null,
     registry: ?*c.wl_registry = null,
     wm: ?*c.river_window_manager_v1 = null,
+    xkb: ?*c.river_xkb_bindings_v1 = null,
+
     running: bool = true,
     phase: Phase = .idle,
 
@@ -32,14 +56,43 @@ pub const State = struct {
     outputs: std.ArrayListUnmanaged(Output) = .{},
     seats: std.ArrayListUnmanaged(Seat) = .{},
 
+    key_runtime: std.ArrayListUnmanaged(*KeyBindingRuntime) = .{},
+    pointer_runtime: std.ArrayListUnmanaged(*PointerBindingRuntime) = .{},
+    pending_actions: std.ArrayListUnmanaged(QueuedAction) = .{},
+
     focused_window: ?*c.river_window_v1 = null,
+
+    pub fn init(allocator: std.mem.Allocator, cfg: config_mod.RuntimeConfig) State {
+        return .{
+            .allocator = allocator,
+            .config = cfg,
+            .layout_mode = @enumFromInt(@intFromEnum(cfg.layout_mode)),
+            .focus_on_interaction = cfg.focus_on_interaction,
+        };
+    }
 
     pub fn deinit(state: *State) void {
         state.focused_window = null;
         state.phase = .idle;
 
+        for (state.key_runtime.items) |binding| {
+            c.river_xkb_binding_v1_destroy(binding.obj);
+            state.allocator.destroy(binding);
+        }
+        state.key_runtime.deinit(state.allocator);
+
+        for (state.pointer_runtime.items) |binding| {
+            c.river_pointer_binding_v1_destroy(binding.obj);
+            state.allocator.destroy(binding);
+        }
+        state.pointer_runtime.deinit(state.allocator);
+
+        freePendingActions(state);
+        state.pending_actions.deinit(state.allocator);
+
         var i: usize = 0;
         while (i < state.windows.items.len) : (i += 1) {
+            freeWindowStrings(state.allocator, &state.windows.items[i]);
             c.river_node_v1_destroy(state.windows.items[i].node);
             c.river_window_v1_destroy(state.windows.items[i].obj);
         }
@@ -55,11 +108,18 @@ pub const State = struct {
 
         i = 0;
         while (i < state.seats.items.len) : (i += 1) {
+            if (state.seats.items[i].xkb_seat) |xkb_seat| {
+                c.river_xkb_bindings_seat_v1_destroy(xkb_seat);
+            }
             c.river_seat_v1_destroy(state.seats.items[i].obj);
         }
         state.seats.deinit(state.allocator);
         state.seats = .{};
 
+        if (state.xkb) |xkb| {
+            c.river_xkb_bindings_v1_destroy(xkb);
+            state.xkb = null;
+        }
         if (state.wm) |wm| {
             c.river_window_manager_v1_destroy(wm);
             state.wm = null;
@@ -68,6 +128,8 @@ pub const State = struct {
             c.wl_registry_destroy(registry);
             state.registry = null;
         }
+
+        state.config.deinit();
     }
 
     pub fn beginPhase(state: *State, phase: Phase) bool {
@@ -224,16 +286,13 @@ pub const State = struct {
         if (fullscreen) {
             c.river_window_v1_set_borders(window.obj, c.RIVER_WINDOW_V1_EDGES_NONE, 0, 0, 0, 0, 0);
         } else {
-            const border_width: i32 = if (focused) 2 else 1;
-            const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_TOP |
+            const style = if (focused) state.config.focused_border else state.config.unfocused_border;
+            const width: i32 = @max(0, style.width);
+            const edges: u32 = if (width == 0) 0 else @intCast(c.RIVER_WINDOW_V1_EDGES_TOP |
                 c.RIVER_WINDOW_V1_EDGES_BOTTOM |
                 c.RIVER_WINDOW_V1_EDGES_LEFT |
                 c.RIVER_WINDOW_V1_EDGES_RIGHT);
-            if (focused) {
-                c.river_window_v1_set_borders(window.obj, edges, border_width, 0x2A2A2AFF, 0x6AA4FFFF, 0xEAF2FFFF, 0xFFFFFFFF);
-            } else {
-                c.river_window_v1_set_borders(window.obj, edges, border_width, 0x303030FF, 0x505050FF, 0x707070FF, 0xFFFFFFFF);
-            }
+            c.river_window_v1_set_borders(window.obj, edges, width, style.r, style.g, style.b, style.a);
         }
 
         c.river_window_v1_show(window.obj);
@@ -242,7 +301,6 @@ pub const State = struct {
 
     pub fn removeWindow(state: *State, window_obj: *c.river_window_v1) bool {
         const idx = state.findWindowIndex(window_obj) orelse return false;
-        const tracked = state.windows.items[idx];
 
         for (state.seats.items) |*seat| {
             if (seat.op.target == window_obj) {
@@ -253,8 +311,9 @@ pub const State = struct {
 
         if (state.focused_window == window_obj) state.focused_window = null;
 
-        c.river_node_v1_destroy(tracked.node);
-        c.river_window_v1_destroy(tracked.obj);
+        freeWindowStrings(state.allocator, &state.windows.items[idx]);
+        c.river_node_v1_destroy(state.windows.items[idx].node);
+        c.river_window_v1_destroy(state.windows.items[idx].obj);
         _ = state.windows.swapRemove(idx);
 
         state.reconcileFocus();
@@ -280,6 +339,10 @@ pub const State = struct {
 
     pub fn removeSeat(state: *State, seat_obj: *c.river_seat_v1) bool {
         const idx = state.findSeatIndex(seat_obj) orelse return false;
+
+        if (state.seats.items[idx].xkb_seat) |xkb_seat| {
+            c.river_xkb_bindings_seat_v1_destroy(xkb_seat);
+        }
         c.river_seat_v1_destroy(state.seats.items[idx].obj);
         _ = state.seats.swapRemove(idx);
         return true;
@@ -386,4 +449,213 @@ pub const State = struct {
             }
         }
     }
+
+    pub fn queueAction(state: *State, action: config_mod.Action, owned_cmd: bool) void {
+        state.pending_actions.append(state.allocator, .{ .action = action, .owned_cmd = owned_cmd }) catch {
+            if (owned_cmd and action.cmd != null) state.allocator.free(action.cmd.?);
+        };
+    }
+
+    pub fn executePendingActions(state: *State) void {
+        var i: usize = 0;
+        while (i < state.pending_actions.items.len) : (i += 1) {
+            const item = state.pending_actions.items[i];
+            defer if (item.owned_cmd and item.action.cmd != null) state.allocator.free(item.action.cmd.?);
+
+            switch (item.action.kind) {
+                .none => {},
+                .spawn => if (item.action.cmd) |cmd| spawnCommand(cmd) else {},
+                .close => if (state.focused_window) |w| c.river_window_v1_close(w),
+                .focus_next => state.focusShift(1),
+                .focus_prev => state.focusShift(-1),
+                .swap_next => state.swapFocused(1),
+                .swap_prev => state.swapFocused(-1),
+                .layout_next => state.cycleLayout(),
+                .layout_set => {
+                    if (item.action.layout) |mode| state.layout_mode = @enumFromInt(@intFromEnum(mode));
+                },
+            }
+        }
+        state.pending_actions.clearRetainingCapacity();
+    }
+
+    pub fn enablePendingBindings(state: *State) void {
+        for (state.key_runtime.items) |binding| {
+            if (binding.pending_enable) {
+                c.river_xkb_binding_v1_enable(binding.obj);
+                binding.pending_enable = false;
+            }
+        }
+        for (state.pointer_runtime.items) |binding| {
+            if (binding.pending_enable) {
+                c.river_pointer_binding_v1_enable(binding.obj);
+                binding.pending_enable = false;
+            }
+        }
+    }
+
+    pub fn applyRulesForWindow(state: *State, idx: usize) void {
+        if (idx >= state.windows.items.len) return;
+        var w = &state.windows.items[idx];
+
+        for (state.config.rules.items) |rule| {
+            if (!ruleMatches(w, rule)) continue;
+
+            if (rule.floating) |v| w.floating = v;
+            if (rule.fullscreen) |v| {
+                w.fullscreen = v;
+                if (v and w.fullscreen_output == null) w.fullscreen_output = w.assigned_output;
+            }
+            if (rule.output_index) |out_idx| {
+                if (out_idx < state.outputs.items.len) {
+                    w.assigned_output = state.outputs.items[out_idx].obj;
+                }
+            }
+        }
+    }
+
+    pub fn updateWindowAppId(state: *State, window_obj: *c.river_window_v1, app_id: [*c]const u8) void {
+        const idx = state.findWindowIndex(window_obj) orelse return;
+        if (state.windows.items[idx].app_id) |s| state.allocator.free(s);
+        state.windows.items[idx].app_id = null;
+
+        if (app_id != null) {
+            state.windows.items[idx].app_id = dup(state.allocator, std.mem.span(app_id)) catch null;
+        }
+        state.applyRulesForWindow(idx);
+    }
+
+    pub fn updateWindowTitle(state: *State, window_obj: *c.river_window_v1, title: [*c]const u8) void {
+        const idx = state.findWindowIndex(window_obj) orelse return;
+        if (state.windows.items[idx].title) |s| state.allocator.free(s);
+        state.windows.items[idx].title = null;
+
+        if (title != null) {
+            state.windows.items[idx].title = dup(state.allocator, std.mem.span(title)) catch null;
+        }
+        state.applyRulesForWindow(idx);
+    }
+
+    pub fn setupControlPath(state: *State) void {
+        const path = state.config.control_path orelse return;
+        const dir = std.fs.path.dirname(path) orelse return;
+        std.fs.cwd().makePath(dir) catch {};
+        _ = std.fs.cwd().createFile(path, .{}) catch {};
+    }
+
+    pub fn pollControlCommands(state: *State) void {
+        const path = state.config.control_path orelse return;
+
+        var file = std.fs.cwd().openFile(path, .{ .mode = .read_write }) catch return;
+        defer file.close();
+
+        const data = file.readToEndAlloc(state.allocator, 64 * 1024) catch return;
+        defer state.allocator.free(data);
+
+        if (data.len == 0) return;
+
+        file.seekTo(0) catch {};
+        file.setEndPos(0) catch {};
+
+        var lines = std.mem.tokenizeScalar(u8, data, '\n');
+        while (lines.next()) |line_raw| {
+            const line = std.mem.trim(u8, line_raw, " \t\r");
+            if (line.len == 0) continue;
+            state.parseAndQueueControl(line);
+        }
+    }
+
+    fn parseAndQueueControl(state: *State, line: []const u8) void {
+        if (std.mem.eql(u8, line, "focus next")) return state.queueAction(.{ .kind = .focus_next }, false);
+        if (std.mem.eql(u8, line, "focus prev")) return state.queueAction(.{ .kind = .focus_prev }, false);
+        if (std.mem.eql(u8, line, "swap next")) return state.queueAction(.{ .kind = .swap_next }, false);
+        if (std.mem.eql(u8, line, "swap prev")) return state.queueAction(.{ .kind = .swap_prev }, false);
+        if (std.mem.eql(u8, line, "layout next")) return state.queueAction(.{ .kind = .layout_next }, false);
+        if (std.mem.eql(u8, line, "layout i3")) return state.queueAction(.{ .kind = .layout_set, .layout = .i3 }, false);
+        if (std.mem.eql(u8, line, "layout monocle")) return state.queueAction(.{ .kind = .layout_set, .layout = .monocle }, false);
+        if (std.mem.eql(u8, line, "layout master")) return state.queueAction(.{ .kind = .layout_set, .layout = .master_stack }, false);
+        if (std.mem.eql(u8, line, "layout vertical")) return state.queueAction(.{ .kind = .layout_set, .layout = .vertical_stack }, false);
+        if (std.mem.eql(u8, line, "close")) return state.queueAction(.{ .kind = .close }, false);
+
+        if (std.mem.startsWith(u8, line, "spawn ")) {
+            const cmd = std.mem.trim(u8, line[6..], " \t");
+            if (cmd.len == 0) return;
+            const owned = dup(state.allocator, cmd) catch return;
+            state.queueAction(.{ .kind = .spawn, .cmd = owned }, true);
+        }
+    }
+
+    pub fn focusShift(state: *State, dir: i32) void {
+        if (state.windows.items.len == 0) return;
+
+        const cur_idx = if (state.focused_window) |w| state.findWindowIndex(w) orelse 0 else 0;
+        const count: i32 = @intCast(state.windows.items.len);
+        const step: i32 = if (dir >= 0) 1 else -1;
+        var idx: i32 = @intCast(cur_idx);
+        idx = @mod(idx + step + count, count);
+        state.focused_window = state.windows.items[@intCast(idx)].obj;
+    }
+
+    pub fn swapFocused(state: *State, dir: i32) void {
+        if (state.windows.items.len < 2) return;
+        const focused = state.focused_window orelse return;
+        const cur = state.findWindowIndex(focused) orelse return;
+
+        const count: i32 = @intCast(state.windows.items.len);
+        const step: i32 = if (dir >= 0) 1 else -1;
+        const other_i32 = @mod(@as(i32, @intCast(cur)) + step + count, count);
+        const other: usize = @intCast(other_i32);
+
+        const tmp = state.windows.items[cur];
+        state.windows.items[cur] = state.windows.items[other];
+        state.windows.items[other] = tmp;
+    }
+
+    pub fn cycleLayout(state: *State) void {
+        state.layout_mode = switch (state.layout_mode) {
+            .i3 => .master_stack,
+            .master_stack => .vertical_stack,
+            .vertical_stack => .monocle,
+            .monocle => .i3,
+        };
+    }
 };
+
+fn spawnCommand(cmd: []const u8) void {
+    var buf: [1024]u8 = undefined;
+    const rendered = std.fmt.bufPrint(&buf, "{s} >/dev/null 2>&1 &", .{cmd}) catch return;
+
+    const args = [_][]const u8{ "sh", "-lc", rendered };
+    _ = std.process.Child.run(.{ .allocator = std.heap.page_allocator, .argv = &args }) catch {};
+}
+
+fn ruleMatches(window: *const Window, rule: config_mod.Rule) bool {
+    if (rule.app_id_contains) |needle| {
+        const hay = window.app_id orelse return false;
+        if (std.mem.indexOf(u8, hay, needle) == null) return false;
+    }
+    if (rule.title_contains) |needle| {
+        const hay = window.title orelse return false;
+        if (std.mem.indexOf(u8, hay, needle) == null) return false;
+    }
+    return true;
+}
+
+fn freeWindowStrings(allocator: std.mem.Allocator, window: *Window) void {
+    if (window.app_id) |s| allocator.free(s);
+    if (window.title) |s| allocator.free(s);
+    window.app_id = null;
+    window.title = null;
+}
+
+fn freePendingActions(state: *State) void {
+    for (state.pending_actions.items) |item| {
+        if (item.owned_cmd and item.action.cmd != null) state.allocator.free(item.action.cmd.?);
+    }
+}
+
+fn dup(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    const out = try allocator.alloc(u8, s.len);
+    @memcpy(out, s);
+    return out;
+}

@@ -52,6 +52,8 @@ pub const Window = struct {
 
     assigned_output: ?*c.river_output_v1 = null,
     parent: ?*c.river_window_v1 = null,
+    app_id: ?[]u8 = null,
+    title: ?[]u8 = null,
 
     floating: bool = false,
     floating_initialized: bool = false,
@@ -83,6 +85,7 @@ pub const Output = struct {
 
 pub const Seat = struct {
     obj: *c.river_seat_v1,
+    xkb_seat: ?*c.river_xkb_bindings_seat_v1 = null,
     pointer_x: i32 = 0,
     pointer_y: i32 = 0,
     has_pointer_position: bool = false,
