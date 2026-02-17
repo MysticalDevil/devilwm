@@ -123,6 +123,7 @@ Useful env vars:
 - `SKIP_BUILD=1` (skip rebuild)
 - `WALLPAPER_FILE=/path/to/wallpaper` (default: `assets/default-wallpaper.svg`)
 - `WALLPAPER_CMD='...'` (override wallpaper startup command)
+- `WALLPAPER_DELAY_SEC=0.5` (delay before starting swaybg to avoid startup race)
 
 By default the nested script uses the built-in devil emoji wallpaper (`assets/default-wallpaper.svg`).
 If `swaybg` is available, it is launched automatically; otherwise wallpaper setup is skipped.

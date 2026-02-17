@@ -53,6 +53,7 @@ fi
 
 APP_COUNT="${APP_COUNT:-4}"
 APP_STAGGER_SEC="${APP_STAGGER_SEC:-0.25}"
+WALLPAPER_DELAY_SEC="${WALLPAPER_DELAY_SEC:-0.5}"
 
 default_app_cmd() {
   cat <<EOF
@@ -64,7 +65,7 @@ APP_CMD="${APP_CMD:-$(default_app_cmd)}"
 default_wallpaper_cmd() {
   if command -v swaybg >/dev/null 2>&1 && [ -f "$WALLPAPER_FILE" ]; then
     cat <<EOF
-swaybg -i "$WALLPAPER_FILE" -m fill >/dev/null 2>&1 &
+sh -lc 'sleep "$WALLPAPER_DELAY_SEC"; swaybg -i "$WALLPAPER_FILE" -m fill >/dev/null 2>&1' &
 EOF
     return 0
   fi
@@ -86,7 +87,7 @@ echo "    river:   $RIVER_BIN"
 echo "    devilwm: $DEVILWM_BIN"
 echo "    app:     $APP_CMD"
 if command -v swaybg >/dev/null 2>&1 && [ -f "$WALLPAPER_FILE" ]; then
-  echo "    wallpaper: $WALLPAPER_FILE (via swaybg)"
+  echo "    wallpaper: $WALLPAPER_FILE (via swaybg, delay=${WALLPAPER_DELAY_SEC}s)"
 else
   echo "    wallpaper: disabled (swaybg missing or file not found)"
 fi
