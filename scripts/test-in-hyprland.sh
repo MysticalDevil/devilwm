@@ -74,9 +74,11 @@ echo "    river:   $RIVER_BIN"
 echo "    devilwm: $DEVILWM_BIN"
 echo "    app:     $APP_CMD"
 echo "    app_count(default): $APP_COUNT"
+echo "    renderer: vulkan (forced)"
 echo "    logs:    $RUN_LOG_DIR"
 
 exec env WLR_BACKENDS=wayland \
+  WLR_RENDERER=vulkan \
   "$RIVER_BIN" \
   -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $APP_CMD" \
   >"$RIVER_LOG" 2>&1
