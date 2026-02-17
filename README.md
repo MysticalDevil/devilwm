@@ -79,6 +79,9 @@ Binaries are produced at:
 - `zig-out/bin/devilwm`
 - `zig-out/bin/devilctl`
 
+Installed default config template:
+- `zig-out/share/devilwm/default-config.lua` (or `<prefix>/share/devilwm/default-config.lua` after install)
+
 ## Quick Test (Nested)
 
 ```bash
@@ -127,6 +130,9 @@ Config search order:
 4. `./devilwm.lua`
 
 Start from `config/default.lua`.
+On first run, if `$DEVILWM_CONFIG` is not set and no user config exists, devilwm auto-creates:
+- `$XDG_CONFIG_HOME/devilwm/config.lua` (preferred), or
+- `$HOME/.config/devilwm/config.lua`
 
 ### How To Use The Config File
 
@@ -173,3 +179,23 @@ Binding action names:
 - `focus_next`, `focus_prev`
 - `swap_next`, `swap_prev`
 - `layout_next`, `layout_set`
+
+Complete field details:
+- `rules[*]`:
+- `app_id` substring match (optional)
+- `title` substring match (optional)
+- `floating` boolean (optional)
+- `fullscreen` boolean (optional)
+- `output` 1-based output index (optional)
+- `bindings[*]`:
+- `mods` modifier string, e.g. `Mod4`, `Mod4+Shift`, `Ctrl+Alt`
+- `key` single character, known names (`Return`, `space`, `tab`, `escape`) or numeric keysym string
+- `action` one of action names above
+- `cmd` required only for `spawn` (falls back to `default_app` when omitted)
+- `layout` required only for `layout_set` (`i3|master_stack|vertical_stack|monocle`)
+- `pointer_bindings[*]`:
+- `mods` same format as keyboard bindings
+- `button` Linux input button code (left button is typically `272`)
+- `action` one of action names above
+- `cmd` for `spawn` (optional)
+- `layout` for `layout_set` (optional)

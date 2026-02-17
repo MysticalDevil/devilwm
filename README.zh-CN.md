@@ -73,6 +73,9 @@ zig build
 - `zig-out/bin/devilwm`
 - `zig-out/bin/devilctl`
 
+安装后的默认配置模板：
+- `zig-out/share/devilwm/default-config.lua`（或安装前缀下的 `<prefix>/share/devilwm/default-config.lua`）
+
 ## 快速测试（嵌套）
 
 ```bash
@@ -121,6 +124,9 @@ cd devilwm
 4. `./devilwm.lua`
 
 可从 `config/default.lua` 复制作为起点。
+首次运行时，如果未设置 `$DEVILWM_CONFIG` 且用户配置不存在，devilwm 会自动生成：
+- `$XDG_CONFIG_HOME/devilwm/config.lua`（优先），或
+- `$HOME/.config/devilwm/config.lua`
 
 ### 配置文件使用方式
 
@@ -150,3 +156,30 @@ return {
   },
 }
 ```
+
+完整支持项说明：
+- `layout`: `"i3" | "master_stack" | "vertical_stack" | "monocle"`
+- `focus_on_interaction`: `true|false`
+- `default_app`: 默认 `spawn` 命令
+- `control_path`: 运行时控制文件路径
+- `focused_border` / `unfocused_border`:
+- `width`: 边框宽度（整数）
+- `r/g/b/a`: 32 位颜色值（例如 `0x2A2A2AFF`）
+- `rules[*]`:
+- `app_id`: 子串匹配（可选）
+- `title`: 子串匹配（可选）
+- `floating`: 布尔（可选）
+- `fullscreen`: 布尔（可选）
+- `output`: 输出索引（从 1 开始，可选）
+- `bindings[*]`:
+- `mods`: 修饰键字符串，如 `Mod4`、`Mod4+Shift`、`Ctrl+Alt`
+- `key`: 单字符、常见键名（`Return`/`space`/`tab`/`escape`）或 keysym 数字字符串
+- `action`: `spawn|close|focus_next|focus_prev|swap_next|swap_prev|layout_next|layout_set`
+- `cmd`: `spawn` 时使用（可选，不填则退回 `default_app`）
+- `layout`: `layout_set` 时使用（`i3|master_stack|vertical_stack|monocle`）
+- `pointer_bindings[*]`:
+- `mods`: 与键盘绑定同格式
+- `button`: Linux input 按钮码（左键通常为 `272`）
+- `action`: 同上
+- `cmd`: `spawn` 时可选
+- `layout`: `layout_set` 时可选
