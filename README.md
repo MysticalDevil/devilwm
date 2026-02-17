@@ -77,7 +77,8 @@ river --version
 
 If output is not `0.4.0`, build river `0.4.0` from source:
 ```bash
-cd ..
+mkdir -p ~/src
+cd ~/src
 git clone https://codeberg.org/river/river.git river-0.4.0
 cd river-0.4.0
 git fetch --tags
@@ -87,8 +88,8 @@ zig build -Dman-pages=false
 
 Then point the nested script to that build:
 ```bash
-cd ../devilwm
-RIVER_DIR=../river-0.4.0 ./scripts/test-in-hyprland.sh
+cd /path/to/devilwm
+RIVER_DIR=~/src/river-0.4.0 ./scripts/test-in-hyprland.sh
 ```
 
 ## Build

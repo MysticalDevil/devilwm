@@ -71,7 +71,8 @@ river --version
 
 如果不是 `0.4.0`，请从源码编译 river `0.4.0`：
 ```bash
-cd ..
+mkdir -p ~/src
+cd ~/src
 git clone https://codeberg.org/river/river.git river-0.4.0
 cd river-0.4.0
 git fetch --tags
@@ -81,8 +82,8 @@ zig build -Dman-pages=false
 
 然后让测试脚本使用该目录：
 ```bash
-cd ../devilwm
-RIVER_DIR=../river-0.4.0 ./scripts/test-in-hyprland.sh
+cd /path/to/devilwm
+RIVER_DIR=~/src/river-0.4.0 ./scripts/test-in-hyprland.sh
 ```
 
 ## 编译
