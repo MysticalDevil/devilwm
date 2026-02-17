@@ -40,18 +40,13 @@ Install these on your machine:
 
 Package names can vary slightly by distro release. The following sets are the usual baseline.
 
-Debian / Ubuntu (`apt`):
+Debian (`apt`):
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg river
+sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg
 ```
 
-Fedora (`dnf`, RPM family):
-```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
-```
-
-RHEL / Rocky / AlmaLinux (`dnf`, RPM family):
+Fedora (`dnf`):
 ```bash
 sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
@@ -63,13 +58,37 @@ sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols swaybg river
 
 Gentoo (`emerge`):
 ```bash
-sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-wm/river gui-apps/swaybg
+sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-apps/swaybg
 ```
 
-If your distro repo does not provide `river`, use the sibling workspace checkout (`../river`) with:
+openSUSE (`zypper`):
 ```bash
-cd ../river
+sudo zypper install -y zig wayland-devel lua51-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
+```
+
+### River Version Policy (must be 0.4.0)
+
+This project expects river `0.4.0`.
+As of February 17, 2026, distro packages are generally not `0.4.0` (or unavailable in official repos), so check first:
+
+```bash
+river --version
+```
+
+If output is not `0.4.0`, build river `0.4.0` from source:
+```bash
+cd ..
+git clone https://codeberg.org/river/river.git river-0.4.0
+cd river-0.4.0
+git fetch --tags
+git checkout v0.4.0
 zig build -Dman-pages=false
+```
+
+Then point the nested script to that build:
+```bash
+cd ../devilwm
+RIVER_DIR=../river-0.4.0 ./scripts/test-in-hyprland.sh
 ```
 
 ## Build

@@ -34,18 +34,13 @@
 
 不同发行版和版本的包名可能略有差异，下面给出常用基线依赖。
 
-Debian / Ubuntu（`apt`）：
+Debian（`apt`）：
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg river
+sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg
 ```
 
-Fedora（`dnf`，RPM 系）：
-```bash
-sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
-```
-
-RHEL / Rocky / AlmaLinux（`dnf`，RPM 系）：
+Fedora（`dnf`）：
 ```bash
 sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
@@ -57,13 +52,37 @@ sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols swaybg river
 
 Gentoo（`emerge`）：
 ```bash
-sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-wm/river gui-apps/swaybg
+sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf gui-apps/swaybg
 ```
 
-如果发行版仓库里没有 `river`，可以使用同级工作区中的 `../river`：
+openSUSE（`zypper`）：
 ```bash
-cd ../river
+sudo zypper install -y zig wayland-devel lua51-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
+```
+
+### River 版本策略（必须是 0.4.0）
+
+本项目要求 river `0.4.0`。
+截至 2026 年 2 月 17 日，各发行版仓库里的 river 通常不是 `0.4.0`（或官方仓库不提供），所以请先检查版本：
+
+```bash
+river --version
+```
+
+如果不是 `0.4.0`，请从源码编译 river `0.4.0`：
+```bash
+cd ..
+git clone https://codeberg.org/river/river.git river-0.4.0
+cd river-0.4.0
+git fetch --tags
+git checkout v0.4.0
 zig build -Dman-pages=false
+```
+
+然后让测试脚本使用该目录：
+```bash
+cd ../devilwm
+RIVER_DIR=../river-0.4.0 ./scripts/test-in-hyprland.sh
 ```
 
 ## 编译
