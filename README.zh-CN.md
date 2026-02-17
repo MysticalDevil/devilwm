@@ -84,6 +84,11 @@ cd devilwm
 - `APP_COUNT`（默认 `4`）
 - `APP_STAGGER_SEC`（默认 `0.25`）
 - `SKIP_BUILD=1`（跳过重新编译）
+- `WALLPAPER_FILE=/path/to/wallpaper`（默认 `assets/default-wallpaper.svg`）
+- `WALLPAPER_CMD='...'`（覆盖壁纸启动命令）
+
+默认会使用内置恶魔 emoji 壁纸（`assets/default-wallpaper.svg`）。
+如果系统有 `swaybg`，脚本会自动启动它设置壁纸；没有则跳过壁纸设置。
 
 ## 在你的会话中运行
 

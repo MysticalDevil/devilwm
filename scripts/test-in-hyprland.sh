@@ -4,6 +4,7 @@ set -eu
 DEVILWM_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 WORKSPACE_DIR="$(CDPATH= cd -- "$DEVILWM_DIR/.." && pwd)"
 RIVER_DIR="${RIVER_DIR:-$WORKSPACE_DIR/river}"
+WALLPAPER_FILE="${WALLPAPER_FILE:-$DEVILWM_DIR/assets/default-wallpaper.svg}"
 RIVER_BIN="$RIVER_DIR/zig-out/bin/river"
 DEVILWM_BIN="$DEVILWM_DIR/zig-out/bin/devilwm"
 
@@ -60,6 +61,17 @@ EOF
 }
 
 APP_CMD="${APP_CMD:-$(default_app_cmd)}"
+default_wallpaper_cmd() {
+  if command -v swaybg >/dev/null 2>&1 && [ -f "$WALLPAPER_FILE" ]; then
+    cat <<EOF
+swaybg -i "$WALLPAPER_FILE" -m fill >/dev/null 2>&1 &
+EOF
+    return 0
+  fi
+  printf ":"
+}
+
+WALLPAPER_CMD="${WALLPAPER_CMD:-$(default_wallpaper_cmd)}"
 LOG_DIR="${LOG_DIR:-$DEVILWM_DIR/logs}"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 RUN_LOG_DIR="$LOG_DIR/$RUN_ID"
@@ -73,6 +85,7 @@ echo "==> starting nested river inside current Wayland session"
 echo "    river:   $RIVER_BIN"
 echo "    devilwm: $DEVILWM_BIN"
 echo "    app:     $APP_CMD"
+echo "    wallpaper: $WALLPAPER_FILE"
 echo "    app_count(default): $APP_COUNT"
 echo "    renderer: vulkan (forced)"
 echo "    logs:    $RUN_LOG_DIR"
@@ -80,5 +93,5 @@ echo "    logs:    $RUN_LOG_DIR"
 exec env WLR_BACKENDS=wayland \
   WLR_RENDERER=vulkan \
   "$RIVER_BIN" \
-  -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $APP_CMD" \
+  -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $WALLPAPER_CMD $APP_CMD" \
   >"$RIVER_LOG" 2>&1
