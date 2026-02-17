@@ -59,6 +59,12 @@ APP_COUNT="${APP_COUNT:-4}"
 APP_STAGGER_SEC="${APP_STAGGER_SEC:-0.25}"
 WALLPAPER_DELAY_SEC="${WALLPAPER_DELAY_SEC:-0.5}"
 WALLPAPER_FALLBACK_COLOR="${WALLPAPER_FALLBACK_COLOR:-#9b111e}"
+LOG_DIR="${LOG_DIR:-$DEVILWM_DIR/logs}"
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+RUN_LOG_DIR="$LOG_DIR/$RUN_ID"
+DEVILWM_LOG="$RUN_LOG_DIR/devilwm.log"
+RIVER_LOG="$RUN_LOG_DIR/river.log"
+SWAYBG_LOG="${SWAYBG_LOG:-$RUN_LOG_DIR/swaybg.log}"
 
 default_app_cmd() {
   cat <<EOF
@@ -78,12 +84,6 @@ EOF
 }
 
 WALLPAPER_CMD="${WALLPAPER_CMD:-$(default_wallpaper_cmd)}"
-LOG_DIR="${LOG_DIR:-$DEVILWM_DIR/logs}"
-RUN_ID="$(date +%Y%m%d-%H%M%S)"
-RUN_LOG_DIR="$LOG_DIR/$RUN_ID"
-DEVILWM_LOG="$RUN_LOG_DIR/devilwm.log"
-RIVER_LOG="$RUN_LOG_DIR/river.log"
-SWAYBG_LOG="${SWAYBG_LOG:-$RUN_LOG_DIR/swaybg.log}"
 
 # Keep per-run logs to simplify protocol debugging.
 mkdir -p "$RUN_LOG_DIR"
