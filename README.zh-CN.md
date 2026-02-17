@@ -28,6 +28,36 @@
 - Lua 5.1 开发库（`lua5.1`）
 - 可提供 river 协议的会话环境（真实运行）或 `scripts/test-in-hyprland.sh` 所需的嵌套测试环境
 
+### 常见发行版安装命令
+
+不同发行版和版本的包名可能略有差异，下面给出常用基线依赖。
+
+Debian / Ubuntu（`apt`）：
+```bash
+sudo apt update
+sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config
+```
+
+Fedora（`dnf`，RPM 系）：
+```bash
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+```
+
+RHEL / Rocky / AlmaLinux（`dnf`，RPM 系）：
+```bash
+sudo dnf install -y zig wayland-devel lua-devel pkgconf-pkg-config wayland-protocols-devel
+```
+
+Arch Linux（`pacman`）：
+```bash
+sudo pacman -S --needed zig wayland lua51 pkgconf wayland-protocols
+```
+
+Gentoo（`emerge`）：
+```bash
+sudo emerge --ask dev-lang/zig dev-libs/wayland dev-lang/lua:5.1 dev-util/pkgconf
+```
+
 ## 编译
 
 ```bash
