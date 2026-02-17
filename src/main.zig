@@ -8,9 +8,10 @@ const c = @cImport({
 });
 
 const max_proto_version: u32 = 3;
-// Nested sessions can transiently report no output geometry; keep windows visible.
 const fallback_width: i32 = 1280;
 const fallback_height: i32 = 720;
+const min_floating_width: i32 = 200;
+const min_floating_height: i32 = 140;
 
 pub const std_options: std.Options = .{
     .log_level = if (build_options.verbose_logs) .debug else .warn,
@@ -22,6 +23,20 @@ const Phase = enum {
     render,
 };
 
+const LayoutMode = enum {
+    // i3-like default: split output into equal columns.
+    i3,
+    monocle,
+    master_stack,
+    vertical_stack,
+};
+
+const OpKind = enum {
+    none,
+    move,
+    resize,
+};
+
 const LayoutRect = struct {
     x: i32,
     y: i32,
@@ -29,23 +44,65 @@ const LayoutRect = struct {
     height: i32,
 };
 
+const SeatOp = struct {
+    kind: OpKind = .none,
+    target: ?*c.river_window_v1 = null,
+    edges: u32 = c.RIVER_WINDOW_V1_EDGES_NONE,
+    pending_start: bool = false,
+    pending_end: bool = false,
+    released: bool = false,
+    delta_x: i32 = 0,
+    delta_y: i32 = 0,
+    base_x: i32 = 0,
+    base_y: i32 = 0,
+    base_w: i32 = 0,
+    base_h: i32 = 0,
+};
+
 const Window = struct {
     obj: *c.river_window_v1,
     node: *c.river_node_v1,
+
     width: i32 = 0,
     height: i32 = 0,
+
+    assigned_output: ?*c.river_output_v1 = null,
+    parent: ?*c.river_window_v1 = null,
+
+    floating: bool = false,
+    floating_initialized: bool = false,
+
+    fullscreen: bool = false,
+    fullscreen_applied: bool = false,
+    fullscreen_output: ?*c.river_output_v1 = null,
+
+    render_x: i32 = 0,
+    render_y: i32 = 0,
+    render_w: i32 = 0,
+    render_h: i32 = 0,
 };
 
 const Output = struct {
     obj: *c.river_output_v1,
     x: i32 = 0,
     y: i32 = 0,
-    width: i32 = 1280,
-    height: i32 = 720,
+    width: i32 = fallback_width,
+    height: i32 = fallback_height,
+
+    fn rect(output: *const Output) LayoutRect {
+        if (output.width > 0 and output.height > 0) {
+            return .{ .x = output.x, .y = output.y, .width = output.width, .height = output.height };
+        }
+        return .{ .x = output.x, .y = output.y, .width = fallback_width, .height = fallback_height };
+    }
 };
 
 const Seat = struct {
     obj: *c.river_seat_v1,
+    pointer_x: i32 = 0,
+    pointer_y: i32 = 0,
+    has_pointer_position: bool = false,
+    op: SeatOp = .{},
 };
 
 const State = struct {
@@ -55,6 +112,9 @@ const State = struct {
     wm: ?*c.river_window_manager_v1 = null,
     running: bool = true,
     phase: Phase = .idle,
+
+    layout_mode: LayoutMode = .i3,
+    focus_on_interaction: bool = true,
 
     windows: std.ArrayListUnmanaged(Window) = .{},
     outputs: std.ArrayListUnmanaged(Output) = .{},
@@ -118,86 +178,166 @@ const State = struct {
         state.phase = .idle;
     }
 
-    fn applyManageWindowState(state: *State, window: *c.river_window_v1, width: i32, height: i32) void {
+    fn findWindowIndex(state: *State, window_obj: *c.river_window_v1) ?usize {
+        for (state.windows.items, 0..) |window, i| {
+            if (window.obj == window_obj) return i;
+        }
+        return null;
+    }
+
+    fn findOutputIndex(state: *State, output_obj: *c.river_output_v1) ?usize {
+        for (state.outputs.items, 0..) |output, i| {
+            if (output.obj == output_obj) return i;
+        }
+        return null;
+    }
+
+    fn findSeatIndex(state: *State, seat_obj: *c.river_seat_v1) ?usize {
+        for (state.seats.items, 0..) |seat, i| {
+            if (seat.obj == seat_obj) return i;
+        }
+        return null;
+    }
+
+    fn hasOutput(state: *State, output_obj: *c.river_output_v1) bool {
+        return state.findOutputIndex(output_obj) != null;
+    }
+
+    fn firstOutputObject(state: *State) ?*c.river_output_v1 {
+        if (state.outputs.items.len == 0) return null;
+        return state.outputs.items[0].obj;
+    }
+
+    fn outputRectFromObject(state: *State, output_obj: ?*c.river_output_v1) LayoutRect {
+        if (output_obj) |obj| {
+            if (state.findOutputIndex(obj)) |idx| {
+                return state.outputs.items[idx].rect();
+            }
+        }
+        return .{ .x = 0, .y = 0, .width = fallback_width, .height = fallback_height };
+    }
+
+    fn outputAtPoint(state: *State, x: i32, y: i32) ?*c.river_output_v1 {
+        for (state.outputs.items) |*output| {
+            const rect = output.rect();
+            if (x >= rect.x and y >= rect.y and x < rect.x + rect.width and y < rect.y + rect.height) {
+                return output.obj;
+            }
+        }
+        return null;
+    }
+
+    fn chooseOutputForNewWindow(state: *State) ?*c.river_output_v1 {
+        if (state.focused_window) |focused| {
+            if (state.findWindowIndex(focused)) |idx| {
+                if (state.windows.items[idx].assigned_output) |output_obj| {
+                    if (state.hasOutput(output_obj)) return output_obj;
+                }
+            }
+        }
+
+        for (state.seats.items) |seat| {
+            if (seat.has_pointer_position) {
+                if (state.outputAtPoint(seat.pointer_x, seat.pointer_y)) |output_obj| {
+                    return output_obj;
+                }
+            }
+        }
+
+        return state.firstOutputObject();
+    }
+
+    fn ensureWindowOutputAssignments(state: *State) void {
+        for (state.windows.items) |*window| {
+            if (window.assigned_output) |out| {
+                if (!state.hasOutput(out)) window.assigned_output = null;
+            }
+            if (window.fullscreen_output) |out| {
+                if (!state.hasOutput(out)) window.fullscreen_output = null;
+            }
+            if (window.assigned_output == null and state.outputs.items.len > 0) {
+                window.assigned_output = state.outputs.items[0].obj;
+            }
+        }
+    }
+
+    fn reconcileFocus(state: *State) void {
+        if (state.focused_window) |focused| {
+            if (state.findWindowIndex(focused) != null) return;
+            state.focused_window = null;
+        }
+
+        if (state.windows.items.len > 0) {
+            state.focused_window = state.windows.items[state.windows.items.len - 1].obj;
+        }
+    }
+
+    fn applyManageWindowState(state: *State, window: *Window, width: i32, height: i32, tiled_edges: u32) void {
         if (state.phase != .manage) {
             log.err("protocol phase violation: window-management state requested outside manage phase", .{});
             state.running = false;
             return;
         }
 
-        c.river_window_v1_propose_dimensions(window, width, height);
-        c.river_window_v1_set_tiled(window, c.RIVER_WINDOW_V1_EDGES_NONE);
+        const safe_w = @max(1, width);
+        const safe_h = @max(1, height);
+
+        window.render_w = safe_w;
+        window.render_h = safe_h;
+
+        c.river_window_v1_propose_dimensions(window.obj, safe_w, safe_h);
+        c.river_window_v1_set_tiled(window.obj, tiled_edges);
         c.river_window_v1_set_capabilities(
-            window,
+            window.obj,
             c.RIVER_WINDOW_V1_CAPABILITIES_WINDOW_MENU |
                 c.RIVER_WINDOW_V1_CAPABILITIES_MAXIMIZE |
                 c.RIVER_WINDOW_V1_CAPABILITIES_FULLSCREEN,
         );
     }
 
-    fn applyRenderWindowState(state: *State, window: *Window, x: i32, y: i32) void {
+    fn applyRenderWindowState(state: *State, window: *Window, show: bool, focused: bool, fullscreen: bool) void {
         if (state.phase != .render) {
             log.err("protocol phase violation: rendering state requested outside render phase", .{});
             state.running = false;
             return;
         }
 
-        c.river_node_v1_set_position(window.node, x, y);
-        c.river_window_v1_show(window.obj);
-        c.river_node_v1_place_top(window.node);
-    }
+        if (!show) {
+            c.river_window_v1_hide(window.obj);
+            return;
+        }
 
-    fn firstOutput(state: *State) ?*Output {
-        if (state.outputs.items.len == 0) return null;
-        return &state.outputs.items[0];
-    }
+        c.river_node_v1_set_position(window.node, window.render_x, window.render_y);
 
-    fn layoutRect(state: *State) LayoutRect {
-        if (state.firstOutput()) |out| {
-            if (out.width > 0 and out.height > 0) {
-                return .{
-                    .x = out.x,
-                    .y = out.y,
-                    .width = out.width,
-                    .height = out.height,
-                };
+        if (fullscreen) {
+            c.river_window_v1_set_borders(window.obj, c.RIVER_WINDOW_V1_EDGES_NONE, 0, 0, 0, 0, 0);
+        } else {
+            const border_width: i32 = if (focused) 2 else 1;
+            const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_TOP |
+                c.RIVER_WINDOW_V1_EDGES_BOTTOM |
+                c.RIVER_WINDOW_V1_EDGES_LEFT |
+                c.RIVER_WINDOW_V1_EDGES_RIGHT);
+            if (focused) {
+                c.river_window_v1_set_borders(window.obj, edges, border_width, 0x2A2A2AFF, 0x6AA4FFFF, 0xEAF2FFFF, 0xFFFFFFFF);
+            } else {
+                c.river_window_v1_set_borders(window.obj, edges, border_width, 0x303030FF, 0x505050FF, 0x707070FF, 0xFFFFFFFF);
             }
         }
-        return .{
-            .x = 0,
-            .y = 0,
-            .width = fallback_width,
-            .height = fallback_height,
-        };
-    }
 
-    fn findWindowIndex(state: *State, window_obj: *c.river_window_v1) ?usize {
-        var i: usize = 0;
-        while (i < state.windows.items.len) : (i += 1) {
-            if (state.windows.items[i].obj == window_obj) return i;
-        }
-        return null;
-    }
-
-    fn findOutputIndex(state: *State, output_obj: *c.river_output_v1) ?usize {
-        var i: usize = 0;
-        while (i < state.outputs.items.len) : (i += 1) {
-            if (state.outputs.items[i].obj == output_obj) return i;
-        }
-        return null;
-    }
-
-    fn findSeatIndex(state: *State, seat_obj: *c.river_seat_v1) ?usize {
-        var i: usize = 0;
-        while (i < state.seats.items.len) : (i += 1) {
-            if (state.seats.items[i].obj == seat_obj) return i;
-        }
-        return null;
+        c.river_window_v1_show(window.obj);
+        c.river_node_v1_place_top(window.node);
     }
 
     fn removeWindow(state: *State, window_obj: *c.river_window_v1) bool {
         const idx = state.findWindowIndex(window_obj) orelse return false;
         const tracked = state.windows.items[idx];
+
+        for (state.seats.items) |*seat| {
+            if (seat.op.target == window_obj) {
+                seat.op.pending_end = true;
+                seat.op.released = true;
+            }
+        }
 
         if (state.focused_window == window_obj) state.focused_window = null;
 
@@ -205,16 +345,24 @@ const State = struct {
         c.river_window_v1_destroy(tracked.obj);
         _ = state.windows.swapRemove(idx);
 
-        if (state.focused_window == null and state.windows.items.len > 0) {
-            state.focused_window = state.windows.items[0].obj;
-        }
+        state.reconcileFocus();
         return true;
     }
 
     fn removeOutput(state: *State, output_obj: *c.river_output_v1) bool {
         const idx = state.findOutputIndex(output_obj) orelse return false;
+
+        for (state.windows.items) |*window| {
+            if (window.assigned_output == output_obj) window.assigned_output = null;
+            if (window.fullscreen_output == output_obj) {
+                window.fullscreen_output = null;
+                window.fullscreen = false;
+            }
+        }
+
         c.river_output_v1_destroy(state.outputs.items[idx].obj);
         _ = state.outputs.swapRemove(idx);
+        state.ensureWindowOutputAssignments();
         return true;
     }
 
@@ -223,6 +371,337 @@ const State = struct {
         c.river_seat_v1_destroy(state.seats.items[idx].obj);
         _ = state.seats.swapRemove(idx);
         return true;
+    }
+
+    fn windowBelongsToOutput(window: *const Window, output_obj: ?*c.river_output_v1) bool {
+        return window.assigned_output == output_obj;
+    }
+
+    fn ensureFloatingGeometry(state: *State, window: *Window) void {
+        if (window.floating_initialized and window.render_w > 0 and window.render_h > 0) return;
+
+        const rect = state.outputRectFromObject(window.assigned_output);
+        window.render_w = @max(min_floating_width, @divTrunc(rect.width * 3, 5));
+        window.render_h = @max(min_floating_height, @divTrunc(rect.height * 3, 5));
+        window.render_x = rect.x + @divTrunc(rect.width - window.render_w, 2);
+        window.render_y = rect.y + @divTrunc(rect.height - window.render_h, 2);
+        window.floating_initialized = true;
+    }
+
+    fn beginSeatOperation(state: *State, seat_obj: *c.river_seat_v1, window_obj: *c.river_window_v1, kind: OpKind, edges: u32) void {
+        const seat_idx = state.findSeatIndex(seat_obj) orelse return;
+        const window_idx = state.findWindowIndex(window_obj) orelse return;
+
+        const window = &state.windows.items[window_idx];
+        window.floating = true;
+        state.ensureFloatingGeometry(window);
+
+        state.seats.items[seat_idx].op = .{
+            .kind = kind,
+            .target = window_obj,
+            .edges = edges,
+            .pending_start = true,
+            .pending_end = false,
+            .released = false,
+            .delta_x = 0,
+            .delta_y = 0,
+            .base_x = window.render_x,
+            .base_y = window.render_y,
+            .base_w = window.render_w,
+            .base_h = window.render_h,
+        };
+    }
+
+    fn applySeatOps(state: *State) void {
+        for (state.seats.items) |*seat| {
+            if (seat.op.kind == .none) continue;
+
+            const target_obj = seat.op.target orelse {
+                seat.op = .{};
+                continue;
+            };
+            const target_idx = state.findWindowIndex(target_obj) orelse {
+                seat.op = .{};
+                continue;
+            };
+            const target = &state.windows.items[target_idx];
+
+            if (seat.op.pending_start) {
+                c.river_seat_v1_op_start_pointer(seat.obj);
+                if (seat.op.kind == .resize) {
+                    c.river_window_v1_inform_resize_start(target.obj);
+                }
+                seat.op.pending_start = false;
+            }
+
+            if (seat.op.kind == .move) {
+                target.render_x = seat.op.base_x + seat.op.delta_x;
+                target.render_y = seat.op.base_y + seat.op.delta_y;
+            } else if (seat.op.kind == .resize) {
+                var new_x = seat.op.base_x;
+                var new_y = seat.op.base_y;
+                var new_w = seat.op.base_w;
+                var new_h = seat.op.base_h;
+
+                if ((seat.op.edges & c.RIVER_WINDOW_V1_EDGES_LEFT) != 0) {
+                    new_x = seat.op.base_x + seat.op.delta_x;
+                    new_w = seat.op.base_w - seat.op.delta_x;
+                }
+                if ((seat.op.edges & c.RIVER_WINDOW_V1_EDGES_RIGHT) != 0) {
+                    new_w = seat.op.base_w + seat.op.delta_x;
+                }
+                if ((seat.op.edges & c.RIVER_WINDOW_V1_EDGES_TOP) != 0) {
+                    new_y = seat.op.base_y + seat.op.delta_y;
+                    new_h = seat.op.base_h - seat.op.delta_y;
+                }
+                if ((seat.op.edges & c.RIVER_WINDOW_V1_EDGES_BOTTOM) != 0) {
+                    new_h = seat.op.base_h + seat.op.delta_y;
+                }
+
+                target.render_x = new_x;
+                target.render_y = new_y;
+                target.render_w = @max(min_floating_width, new_w);
+                target.render_h = @max(min_floating_height, new_h);
+            }
+            target.floating_initialized = true;
+
+            if (seat.op.pending_end or seat.op.released) {
+                if (seat.op.kind == .resize) {
+                    c.river_window_v1_inform_resize_end(target.obj);
+                }
+                c.river_seat_v1_op_end(seat.obj);
+                seat.op = .{};
+            }
+        }
+    }
+
+    fn applyLayoutForOutput(state: *State, output_obj: ?*c.river_output_v1, rect: LayoutRect) void {
+        var tiled = std.ArrayListUnmanaged(usize){};
+        defer tiled.deinit(state.allocator);
+
+        var floating = std.ArrayListUnmanaged(usize){};
+        defer floating.deinit(state.allocator);
+
+        var fullscreen_idx: ?usize = null;
+
+        for (state.windows.items, 0..) |window, i| {
+            if (!windowBelongsToOutput(&window, output_obj)) continue;
+
+            if (window.fullscreen) {
+                if (fullscreen_idx == null or window.obj == state.focused_window) {
+                    fullscreen_idx = i;
+                }
+                continue;
+            }
+
+            if (window.floating or window.parent != null) {
+                floating.append(state.allocator, i) catch {
+                    state.running = false;
+                    return;
+                };
+            } else {
+                tiled.append(state.allocator, i) catch {
+                    state.running = false;
+                    return;
+                };
+            }
+        }
+
+        if (fullscreen_idx) |idx| {
+            const window = &state.windows.items[idx];
+            const fullscreen_out = if (window.fullscreen_output != null and state.hasOutput(window.fullscreen_output.?))
+                window.fullscreen_output
+            else
+                output_obj;
+            if (fullscreen_out != null) {
+                c.river_window_v1_fullscreen(window.obj, fullscreen_out.?);
+                c.river_window_v1_inform_fullscreen(window.obj);
+                window.fullscreen_applied = true;
+                window.render_x = rect.x;
+                window.render_y = rect.y;
+                window.render_w = rect.width;
+                window.render_h = rect.height;
+            }
+        }
+
+        for (state.windows.items) |*window| {
+            if (!windowBelongsToOutput(window, output_obj)) continue;
+            if (!window.fullscreen and window.fullscreen_applied) {
+                c.river_window_v1_exit_fullscreen(window.obj);
+                c.river_window_v1_inform_not_fullscreen(window.obj);
+                window.fullscreen_applied = false;
+            }
+        }
+
+        const tiled_count = tiled.items.len;
+        switch (state.layout_mode) {
+            .monocle => {
+                for (tiled.items) |idx| {
+                    const window = &state.windows.items[idx];
+                    window.render_x = rect.x;
+                    window.render_y = rect.y;
+                    state.applyManageWindowState(window, rect.width, rect.height, c.RIVER_WINDOW_V1_EDGES_NONE);
+                }
+            },
+            .master_stack => {
+                if (tiled_count == 0) {} else if (tiled_count == 1) {
+                    const window = &state.windows.items[tiled.items[0]];
+                    window.render_x = rect.x;
+                    window.render_y = rect.y;
+                    state.applyManageWindowState(window, rect.width, rect.height, c.RIVER_WINDOW_V1_EDGES_NONE);
+                } else {
+                    const master_w = @max(1, @divTrunc(rect.width * 3, 5));
+                    const stack_w = @max(1, rect.width - master_w);
+
+                    {
+                        const master = &state.windows.items[tiled.items[0]];
+                        master.render_x = rect.x;
+                        master.render_y = rect.y;
+                        const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_TOP |
+                            c.RIVER_WINDOW_V1_EDGES_BOTTOM |
+                            c.RIVER_WINDOW_V1_EDGES_RIGHT);
+                        state.applyManageWindowState(master, master_w, rect.height, edges);
+                    }
+
+                    const stack_count: i32 = @intCast(tiled_count - 1);
+                    const base_h = @divTrunc(rect.height, stack_count);
+                    var y_acc = rect.y;
+                    var i: usize = 1;
+                    while (i < tiled_count) : (i += 1) {
+                        const is_last = i + 1 == tiled_count;
+                        const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
+                        const window = &state.windows.items[tiled.items[i]];
+                        window.render_x = rect.x + master_w;
+                        window.render_y = y_acc;
+                        const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_LEFT |
+                            c.RIVER_WINDOW_V1_EDGES_RIGHT |
+                            (if (i > 1) c.RIVER_WINDOW_V1_EDGES_TOP else c.RIVER_WINDOW_V1_EDGES_NONE) |
+                            (if (!is_last) c.RIVER_WINDOW_V1_EDGES_BOTTOM else c.RIVER_WINDOW_V1_EDGES_NONE));
+                        state.applyManageWindowState(window, stack_w, h, edges);
+                        y_acc += h;
+                    }
+                }
+            },
+            .vertical_stack => {
+                if (tiled_count > 0) {
+                    const n_i32: i32 = @intCast(tiled_count);
+                    const base_h: i32 = @divTrunc(rect.height, n_i32);
+                    var y_acc: i32 = rect.y;
+
+                    for (tiled.items, 0..) |idx, i| {
+                        const is_last = i + 1 == tiled_count;
+                        const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
+                        const window = &state.windows.items[idx];
+                        window.render_x = rect.x;
+                        window.render_y = y_acc;
+                        const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_LEFT |
+                            c.RIVER_WINDOW_V1_EDGES_RIGHT |
+                            (if (i > 0) c.RIVER_WINDOW_V1_EDGES_TOP else c.RIVER_WINDOW_V1_EDGES_NONE) |
+                            (if (!is_last) c.RIVER_WINDOW_V1_EDGES_BOTTOM else c.RIVER_WINDOW_V1_EDGES_NONE));
+                        state.applyManageWindowState(window, rect.width, h, edges);
+                        y_acc += h;
+                    }
+                }
+            },
+            .i3 => {
+                if (tiled_count > 0) {
+                    const n_i32: i32 = @intCast(tiled_count);
+                    const base_w: i32 = @divTrunc(rect.width, n_i32);
+                    var x_acc: i32 = rect.x;
+
+                    for (tiled.items, 0..) |idx, i| {
+                        const is_last = i + 1 == tiled_count;
+                        const w = if (is_last) (rect.x + rect.width - x_acc) else base_w;
+                        const window = &state.windows.items[idx];
+                        window.render_x = x_acc;
+                        window.render_y = rect.y;
+                        const edges: u32 = @intCast(c.RIVER_WINDOW_V1_EDGES_TOP |
+                            c.RIVER_WINDOW_V1_EDGES_BOTTOM |
+                            (if (i > 0) c.RIVER_WINDOW_V1_EDGES_LEFT else c.RIVER_WINDOW_V1_EDGES_NONE) |
+                            (if (!is_last) c.RIVER_WINDOW_V1_EDGES_RIGHT else c.RIVER_WINDOW_V1_EDGES_NONE));
+                        state.applyManageWindowState(window, w, rect.height, edges);
+                        x_acc += w;
+                    }
+                }
+            },
+        }
+
+        for (floating.items) |idx| {
+            const window = &state.windows.items[idx];
+            window.floating = true;
+            state.ensureFloatingGeometry(window);
+            state.applyManageWindowState(window, window.render_w, window.render_h, c.RIVER_WINDOW_V1_EDGES_NONE);
+        }
+    }
+
+    fn applyManageLayout(state: *State) void {
+        state.ensureWindowOutputAssignments();
+        state.reconcileFocus();
+        state.applySeatOps();
+
+        if (state.outputs.items.len == 0) {
+            state.applyLayoutForOutput(null, .{ .x = 0, .y = 0, .width = fallback_width, .height = fallback_height });
+        } else {
+            for (state.outputs.items) |output| {
+                state.applyLayoutForOutput(output.obj, output.rect());
+            }
+        }
+
+        if (state.seats.items.len > 0) {
+            if (state.focused_window) |target| {
+                for (state.seats.items) |seat| {
+                    c.river_seat_v1_focus_window(seat.obj, target);
+                }
+            } else {
+                for (state.seats.items) |seat| {
+                    c.river_seat_v1_clear_focus(seat.obj);
+                }
+            }
+        }
+    }
+
+    fn topFullscreenForOutput(state: *State, output_obj: ?*c.river_output_v1) ?usize {
+        var top: ?usize = null;
+        for (state.windows.items, 0..) |window, i| {
+            if (!windowBelongsToOutput(&window, output_obj)) continue;
+            if (!window.fullscreen) continue;
+            if (top == null or window.obj == state.focused_window) {
+                top = i;
+            }
+        }
+        return top;
+    }
+
+    fn renderForOutput(state: *State, output_obj: ?*c.river_output_v1) void {
+        const fullscreen_idx = state.topFullscreenForOutput(output_obj);
+        if (fullscreen_idx) |idx| {
+            const focused = state.windows.items[idx].obj == state.focused_window;
+            state.applyRenderWindowState(&state.windows.items[idx], true, focused, true);
+            return;
+        }
+
+        for (state.windows.items) |*window| {
+            if (!windowBelongsToOutput(window, output_obj)) continue;
+            if (window.floating or window.parent != null) continue;
+            const focused = window.obj == state.focused_window;
+            state.applyRenderWindowState(window, true, focused, false);
+        }
+
+        for (state.windows.items) |*window| {
+            if (!windowBelongsToOutput(window, output_obj)) continue;
+            if (!(window.floating or window.parent != null)) continue;
+            if (window.parent != null) continue;
+            const focused = window.obj == state.focused_window;
+            state.applyRenderWindowState(window, true, focused, false);
+        }
+
+        for (state.windows.items) |*window| {
+            if (!windowBelongsToOutput(window, output_obj)) continue;
+            if (!(window.floating or window.parent != null)) continue;
+            if (window.parent == null) continue;
+            const focused = window.obj == state.focused_window;
+            state.applyRenderWindowState(window, true, focused, false);
+        }
     }
 };
 
@@ -238,6 +717,33 @@ fn bindTyped(comptime T: type, registry: *c.wl_registry, name: u32, iface: *cons
 
 fn chooseVersion(advertised: u32) u32 {
     return @min(advertised, max_proto_version);
+}
+
+fn parseLayoutMode() LayoutMode {
+    const raw = std.posix.getenv("DEVILWM_LAYOUT") orelse return .i3;
+    const value: []const u8 = raw;
+
+    if (std.ascii.eqlIgnoreCase(value, "i3") or std.ascii.eqlIgnoreCase(value, "i3-like") or std.ascii.eqlIgnoreCase(value, "split")) {
+        return .i3;
+    }
+    if (std.ascii.eqlIgnoreCase(value, "monocle")) return .monocle;
+    if (std.ascii.eqlIgnoreCase(value, "master") or std.ascii.eqlIgnoreCase(value, "master-stack") or std.ascii.eqlIgnoreCase(value, "master_stack")) {
+        return .master_stack;
+    }
+    if (std.ascii.eqlIgnoreCase(value, "vertical") or std.ascii.eqlIgnoreCase(value, "vstack") or std.ascii.eqlIgnoreCase(value, "vertical-stack")) {
+        return .vertical_stack;
+    }
+    return .i3;
+}
+
+fn parseFocusOnInteraction() bool {
+    const raw = std.posix.getenv("DEVILWM_FOCUS_ON_INTERACTION") orelse return true;
+    const value: []const u8 = raw;
+
+    if (std.ascii.eqlIgnoreCase(value, "0") or std.ascii.eqlIgnoreCase(value, "false") or std.ascii.eqlIgnoreCase(value, "no") or std.ascii.eqlIgnoreCase(value, "off")) {
+        return false;
+    }
+    return true;
 }
 
 fn wmUnavailable(data: ?*anyopaque, _: ?*c.river_window_manager_v1) callconv(.c) void {
@@ -261,41 +767,14 @@ fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
     }
     defer state.endPhase(.manage);
 
-    const rect = state.layoutRect();
-    log.debug("manage_start windows={} outputs={} seats={} rect=({},{} {}x{})", .{
+    log.debug("manage_start windows={} outputs={} seats={} layout={s}", .{
         state.windows.items.len,
         state.outputs.items.len,
         state.seats.items.len,
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height,
+        @tagName(state.layout_mode),
     });
 
-    const count = state.windows.items.len;
-    const n_i32: i32 = if (count > 0) @intCast(count) else 1;
-    const base_h: i32 = @divTrunc(rect.height, n_i32);
-    var y_acc: i32 = rect.y;
-
-    var manage_i: usize = 0;
-    while (manage_i < count) : (manage_i += 1) {
-        const is_last = manage_i + 1 == count;
-        const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
-        const w = state.windows.items[manage_i];
-
-        state.applyManageWindowState(w.obj, rect.width, h);
-        y_acc += h;
-    }
-
-    if (state.windows.items.len > 0 and state.seats.items.len > 0) {
-        const target = state.focused_window orelse state.windows.items[0].obj;
-        var i: usize = 0;
-        while (i < state.seats.items.len) : (i += 1) {
-            c.river_seat_v1_focus_window(state.seats.items[i].obj, target);
-        }
-        state.focused_window = target;
-    }
-
+    state.applyManageLayout();
     c.river_window_manager_v1_manage_finish(wm_obj);
 }
 
@@ -308,29 +787,21 @@ fn wmRenderStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
     }
     defer state.endPhase(.render);
 
-    const rect = state.layoutRect();
-    const count = state.windows.items.len;
-    log.debug("render_start windows={} rect=({},{} {}x{})", .{
-        count,
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height,
-    });
-    if (count > 0 and rect.width > 0 and rect.height > 0) {
-        const n_i32: i32 = @intCast(count);
-        const base_h: i32 = @divTrunc(rect.height, n_i32);
-        var y_acc: i32 = rect.y;
+    for (state.windows.items) |*window| {
+        state.applyRenderWindowState(window, false, false, false);
+    }
 
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            const is_last = i + 1 == count;
-            const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
-            const win = &state.windows.items[i];
+    if (state.outputs.items.len == 0) {
+        state.renderForOutput(null);
+    } else {
+        for (state.outputs.items) |output| {
+            state.renderForOutput(output.obj);
+        }
+    }
 
-            state.applyRenderWindowState(win, rect.x, y_acc);
-
-            y_acc += h;
+    if (state.focused_window) |focused| {
+        if (state.findWindowIndex(focused)) |idx| {
+            c.river_node_v1_place_top(state.windows.items[idx].node);
         }
     }
 
@@ -343,7 +814,6 @@ fn wmSessionUnlocked(_: ?*anyopaque, _: ?*c.river_window_manager_v1) callconv(.c
 fn wmWindow(data: ?*anyopaque, _: ?*c.river_window_manager_v1, window: ?*c.river_window_v1) callconv(.c) void {
     const state = getState(data);
     const window_obj = window orelse return;
-    log.info("new window", .{});
 
     const node = c.river_window_v1_get_node(window_obj) orelse {
         log.err("failed to create node for new window", .{});
@@ -352,9 +822,11 @@ fn wmWindow(data: ?*anyopaque, _: ?*c.river_window_manager_v1, window: ?*c.river
 
     _ = c.river_window_v1_add_listener(window_obj, &window_listener, data);
 
+    const assigned_output = state.chooseOutputForNewWindow();
     state.windows.append(state.allocator, .{
         .obj = window_obj,
         .node = node,
+        .assigned_output = assigned_output,
     }) catch {
         log.err("out of memory while tracking window", .{});
         c.river_node_v1_destroy(node);
@@ -362,26 +834,28 @@ fn wmWindow(data: ?*anyopaque, _: ?*c.river_window_manager_v1, window: ?*c.river
         return;
     };
 
-    if (state.focused_window == null) state.focused_window = window_obj;
+    // i3-like default: focus follows newly mapped window.
+    state.focused_window = window_obj;
 }
 
 fn wmOutput(data: ?*anyopaque, _: ?*c.river_window_manager_v1, output: ?*c.river_output_v1) callconv(.c) void {
     const state = getState(data);
     const output_obj = output orelse return;
-    log.info("new output", .{});
 
     _ = c.river_output_v1_add_listener(output_obj, &output_listener, data);
 
     state.outputs.append(state.allocator, .{ .obj = output_obj }) catch {
         log.err("out of memory while tracking output", .{});
         c.river_output_v1_destroy(output_obj);
+        return;
     };
+
+    state.ensureWindowOutputAssignments();
 }
 
 fn wmSeat(data: ?*anyopaque, _: ?*c.river_window_manager_v1, seat: ?*c.river_seat_v1) callconv(.c) void {
     const state = getState(data);
     const seat_obj = seat orelse return;
-    log.info("new seat", .{});
 
     _ = c.river_seat_v1_add_listener(seat_obj, &seat_listener, data);
 
@@ -394,7 +868,6 @@ fn wmSeat(data: ?*anyopaque, _: ?*c.river_window_manager_v1, seat: ?*c.river_sea
 fn windowClosed(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) void {
     const state = getState(data);
     const window_obj = window orelse return;
-    log.info("window closed", .{});
 
     if (!state.removeWindow(window_obj)) {
         log.warn("window closed for unknown window", .{});
@@ -410,10 +883,71 @@ fn windowDimensions(data: ?*anyopaque, window: ?*c.river_window_v1, width: i32, 
     state.windows.items[idx].height = height;
 }
 
+fn windowParent(data: ?*anyopaque, window: ?*c.river_window_v1, parent: ?*c.river_window_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const idx = state.findWindowIndex(window_obj) orelse return;
+
+    state.windows.items[idx].parent = parent;
+    if (parent != null) {
+        state.windows.items[idx].floating = true;
+        state.ensureFloatingGeometry(&state.windows.items[idx]);
+    }
+}
+
+fn windowMoveRequested(data: ?*anyopaque, window: ?*c.river_window_v1, seat: ?*c.river_seat_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const seat_obj = seat orelse return;
+
+    state.beginSeatOperation(seat_obj, window_obj, .move, c.RIVER_WINDOW_V1_EDGES_NONE);
+}
+
+fn windowResizeRequested(data: ?*anyopaque, window: ?*c.river_window_v1, seat: ?*c.river_seat_v1, edges: u32) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const seat_obj = seat orelse return;
+
+    state.beginSeatOperation(seat_obj, window_obj, .resize, edges);
+}
+
+fn windowMaximizeRequested(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const idx = state.findWindowIndex(window_obj) orelse return;
+
+    state.windows.items[idx].fullscreen = true;
+    state.windows.items[idx].fullscreen_output = state.windows.items[idx].assigned_output;
+}
+
+fn windowUnmaximizeRequested(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const idx = state.findWindowIndex(window_obj) orelse return;
+
+    state.windows.items[idx].fullscreen = false;
+}
+
+fn windowFullscreenRequested(data: ?*anyopaque, window: ?*c.river_window_v1, output: ?*c.river_output_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const idx = state.findWindowIndex(window_obj) orelse return;
+
+    state.windows.items[idx].fullscreen = true;
+    state.windows.items[idx].fullscreen_output = output orelse state.windows.items[idx].assigned_output;
+}
+
+fn windowExitFullscreenRequested(data: ?*anyopaque, window: ?*c.river_window_v1) callconv(.c) void {
+    const state = getState(data);
+    const window_obj = window orelse return;
+    const idx = state.findWindowIndex(window_obj) orelse return;
+
+    state.windows.items[idx].fullscreen = false;
+}
+
 fn outputRemoved(data: ?*anyopaque, output: ?*c.river_output_v1) callconv(.c) void {
     const state = getState(data);
     const output_obj = output orelse return;
-    log.info("output removed", .{});
 
     if (!state.removeOutput(output_obj)) {
         log.warn("output removed for unknown output", .{});
@@ -427,7 +961,6 @@ fn outputPosition(data: ?*anyopaque, output: ?*c.river_output_v1, x: i32, y: i32
     const idx = state.findOutputIndex(output_obj) orelse return;
     state.outputs.items[idx].x = x;
     state.outputs.items[idx].y = y;
-    log.debug("output position idx={} -> ({},{})", .{ idx, x, y });
 }
 
 fn outputDimensions(data: ?*anyopaque, output: ?*c.river_output_v1, width: i32, height: i32) callconv(.c) void {
@@ -437,13 +970,11 @@ fn outputDimensions(data: ?*anyopaque, output: ?*c.river_output_v1, width: i32, 
     const idx = state.findOutputIndex(output_obj) orelse return;
     state.outputs.items[idx].width = width;
     state.outputs.items[idx].height = height;
-    log.debug("output dimensions idx={} -> {}x{}", .{ idx, width, height });
 }
 
 fn seatRemoved(data: ?*anyopaque, seat: ?*c.river_seat_v1) callconv(.c) void {
     const state = getState(data);
     const seat_obj = seat orelse return;
-    log.info("seat removed", .{});
 
     if (!state.removeSeat(seat_obj)) {
         log.warn("seat removed for unknown seat", .{});
@@ -452,29 +983,50 @@ fn seatRemoved(data: ?*anyopaque, seat: ?*c.river_seat_v1) callconv(.c) void {
 
 fn seatWindowInteraction(data: ?*anyopaque, _: ?*c.river_seat_v1, window: ?*c.river_window_v1) callconv(.c) void {
     const state = getState(data);
+    if (!state.focus_on_interaction) return;
     state.focused_window = window;
-    log.debug("seat window interaction: focused updated", .{});
+}
+
+fn seatOpDelta(data: ?*anyopaque, seat: ?*c.river_seat_v1, dx: i32, dy: i32) callconv(.c) void {
+    const state = getState(data);
+    const seat_obj = seat orelse return;
+    const idx = state.findSeatIndex(seat_obj) orelse return;
+
+    state.seats.items[idx].op.delta_x = dx;
+    state.seats.items[idx].op.delta_y = dy;
+}
+
+fn seatOpRelease(data: ?*anyopaque, seat: ?*c.river_seat_v1) callconv(.c) void {
+    const state = getState(data);
+    const seat_obj = seat orelse return;
+    const idx = state.findSeatIndex(seat_obj) orelse return;
+
+    state.seats.items[idx].op.released = true;
+    state.seats.items[idx].op.pending_end = true;
+}
+
+fn seatPointerPosition(data: ?*anyopaque, seat: ?*c.river_seat_v1, x: i32, y: i32) callconv(.c) void {
+    const state = getState(data);
+    const seat_obj = seat orelse return;
+    const idx = state.findSeatIndex(seat_obj) orelse return;
+
+    state.seats.items[idx].pointer_x = x;
+    state.seats.items[idx].pointer_y = y;
+    state.seats.items[idx].has_pointer_position = true;
 }
 
 // Wayland listeners may not be NULL for events the compositor can emit.
 fn noopWindowDimensionsHint(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32, _: i32, _: i32, _: i32) callconv(.c) void {}
 fn noopWindowString(_: ?*anyopaque, _: ?*c.river_window_v1, _: [*c]const u8) callconv(.c) void {}
-fn noopWindowParent(_: ?*anyopaque, _: ?*c.river_window_v1, _: ?*c.river_window_v1) callconv(.c) void {}
 fn noopWindowDecorationHint(_: ?*anyopaque, _: ?*c.river_window_v1, _: u32) callconv(.c) void {}
-fn noopWindowMoveReq(_: ?*anyopaque, _: ?*c.river_window_v1, _: ?*c.river_seat_v1) callconv(.c) void {}
-fn noopWindowResizeReq(_: ?*anyopaque, _: ?*c.river_window_v1, _: ?*c.river_seat_v1, _: u32) callconv(.c) void {}
 fn noopWindowMenuReq(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32, _: i32) callconv(.c) void {}
 fn noopWindowSimple(_: ?*anyopaque, _: ?*c.river_window_v1) callconv(.c) void {}
-fn noopWindowFullscreenReq(_: ?*anyopaque, _: ?*c.river_window_v1, _: ?*c.river_output_v1) callconv(.c) void {}
 fn noopWindowPid(_: ?*anyopaque, _: ?*c.river_window_v1, _: i32) callconv(.c) void {}
 fn noopOutputWlOutput(_: ?*anyopaque, _: ?*c.river_output_v1, _: u32) callconv(.c) void {}
 fn noopSeatWlSeat(_: ?*anyopaque, _: ?*c.river_seat_v1, _: u32) callconv(.c) void {}
 fn noopSeatPointerEnter(_: ?*anyopaque, _: ?*c.river_seat_v1, _: ?*c.river_window_v1) callconv(.c) void {}
 fn noopSeatPointerLeave(_: ?*anyopaque, _: ?*c.river_seat_v1) callconv(.c) void {}
 fn noopSeatShellSurfaceInteraction(_: ?*anyopaque, _: ?*c.river_seat_v1, _: ?*c.river_shell_surface_v1) callconv(.c) void {}
-fn noopSeatOpDelta(_: ?*anyopaque, _: ?*c.river_seat_v1, _: i32, _: i32) callconv(.c) void {}
-fn noopSeatOpRelease(_: ?*anyopaque, _: ?*c.river_seat_v1) callconv(.c) void {}
-fn noopSeatPointerPosition(_: ?*anyopaque, _: ?*c.river_seat_v1, _: i32, _: i32) callconv(.c) void {}
 
 fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
     const state = getState(data);
@@ -482,7 +1034,6 @@ fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, inter
     if (interface == null) return;
 
     const iface_name = std.mem.span(interface);
-    log.debug("registry global: {s} name={} version={}", .{ iface_name, name, version });
     if (!std.mem.eql(u8, iface_name, "river_window_manager_v1")) return;
     if (state.wm != null) return;
 
@@ -492,7 +1043,6 @@ fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, inter
         state.running = false;
         return;
     }
-    log.info("bound river_window_manager_v1 version={}", .{chooseVersion(version)});
 
     _ = c.river_window_manager_v1_add_listener(state.wm.?, &wm_listener, data);
 }
@@ -517,15 +1067,15 @@ const window_listener = c.river_window_v1_listener{
     .dimensions = windowDimensions,
     .app_id = noopWindowString,
     .title = noopWindowString,
-    .parent = noopWindowParent,
+    .parent = windowParent,
     .decoration_hint = noopWindowDecorationHint,
-    .pointer_move_requested = noopWindowMoveReq,
-    .pointer_resize_requested = noopWindowResizeReq,
+    .pointer_move_requested = windowMoveRequested,
+    .pointer_resize_requested = windowResizeRequested,
     .show_window_menu_requested = noopWindowMenuReq,
-    .maximize_requested = noopWindowSimple,
-    .unmaximize_requested = noopWindowSimple,
-    .fullscreen_requested = noopWindowFullscreenReq,
-    .exit_fullscreen_requested = noopWindowSimple,
+    .maximize_requested = windowMaximizeRequested,
+    .unmaximize_requested = windowUnmaximizeRequested,
+    .fullscreen_requested = windowFullscreenRequested,
+    .exit_fullscreen_requested = windowExitFullscreenRequested,
     .minimize_requested = noopWindowSimple,
     .unreliable_pid = noopWindowPid,
 };
@@ -544,9 +1094,9 @@ const seat_listener = c.river_seat_v1_listener{
     .pointer_leave = noopSeatPointerLeave,
     .window_interaction = seatWindowInteraction,
     .shell_surface_interaction = noopSeatShellSurfaceInteraction,
-    .op_delta = noopSeatOpDelta,
-    .op_release = noopSeatOpRelease,
-    .pointer_position = noopSeatPointerPosition,
+    .op_delta = seatOpDelta,
+    .op_release = seatOpRelease,
+    .pointer_position = seatPointerPosition,
 };
 
 const registry_listener = c.wl_registry_listener{
@@ -563,6 +1113,8 @@ pub fn main() !void {
 
     var state = State{
         .allocator = gpa.allocator(),
+        .layout_mode = parseLayoutMode(),
+        .focus_on_interaction = parseFocusOnInteraction(),
     };
 
     state.display = c.wl_display_connect(null);
@@ -579,7 +1131,6 @@ pub fn main() !void {
     }
 
     _ = c.wl_registry_add_listener(state.registry, &registry_listener, &state);
-    log.info("waiting for globals...", .{});
 
     if (c.wl_display_roundtrip(state.display) < 0) {
         return error.RoundtripFailed;
@@ -589,9 +1140,7 @@ pub fn main() !void {
         log.err("river_window_manager_v1 not advertised on this compositor", .{});
         return error.MissingRiverProtocol;
     }
-    log.info("devilwm initialized", .{});
 
-    // Fetch initial objects/state and allow first manage/render sequences.
     if (c.wl_display_roundtrip(state.display) < 0) {
         return error.RoundtripFailed;
     }
