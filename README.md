@@ -128,6 +128,35 @@ Config search order:
 
 Start from `config/default.lua`.
 
+### How To Use The Config File
+
+1. Create a user config:
+```bash
+mkdir -p ~/.config/devilwm
+cp config/default.lua ~/.config/devilwm/config.lua
+```
+2. Edit `~/.config/devilwm/config.lua`.
+3. Restart `devilwm` to apply changes.
+
+Use a custom config path:
+```bash
+DEVILWM_CONFIG=/path/to/config.lua ./zig-out/bin/devilwm
+```
+
+Minimal example:
+```lua
+return {
+  layout = "master_stack",
+  focus_on_interaction = true,
+  default_app = "foot",
+  bindings = {
+    { mods = "Mod4", key = "Return", action = "spawn", cmd = "foot" },
+    { mods = "Mod4", key = "q", action = "close" },
+    { mods = "Mod4", key = "space", action = "layout_next" },
+  },
+}
+```
+
 Supported top-level fields:
 - `layout = "i3" | "master_stack" | "vertical_stack" | "monocle"`
 - `focus_on_interaction = true|false`

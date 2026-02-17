@@ -121,3 +121,32 @@ cd devilwm
 4. `./devilwm.lua`
 
 可从 `config/default.lua` 复制作为起点。
+
+### 配置文件使用方式
+
+1. 创建用户配置：
+```bash
+mkdir -p ~/.config/devilwm
+cp config/default.lua ~/.config/devilwm/config.lua
+```
+2. 编辑 `~/.config/devilwm/config.lua`。
+3. 重启 `devilwm` 使配置生效。
+
+使用自定义配置路径：
+```bash
+DEVILWM_CONFIG=/path/to/config.lua ./zig-out/bin/devilwm
+```
+
+最小示例：
+```lua
+return {
+  layout = "master_stack",
+  focus_on_interaction = true,
+  default_app = "foot",
+  bindings = {
+    { mods = "Mod4", key = "Return", action = "spawn", cmd = "foot" },
+    { mods = "Mod4", key = "q", action = "close" },
+    { mods = "Mod4", key = "space", action = "layout_next" },
+  },
+}
+```
