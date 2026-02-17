@@ -11,6 +11,12 @@ const max_proto_version: u32 = 3;
 const fallback_width: i32 = 1280;
 const fallback_height: i32 = 720;
 
+const Phase = enum {
+    idle,
+    manage,
+    render,
+};
+
 const LayoutRect = struct {
     x: i32,
     y: i32,
@@ -43,6 +49,7 @@ const State = struct {
     registry: ?*c.wl_registry = null,
     wm: ?*c.river_window_manager_v1 = null,
     running: bool = true,
+    phase: Phase = .idle,
 
     windows: std.ArrayListUnmanaged(Window) = .{},
     outputs: std.ArrayListUnmanaged(Output) = .{},
@@ -71,6 +78,55 @@ const State = struct {
         state.seats.deinit(state.allocator);
 
         if (state.wm) |wm| c.river_window_manager_v1_destroy(wm);
+    }
+
+    fn beginPhase(state: *State, phase: Phase) bool {
+        if (state.phase != .idle) {
+            log.err("protocol phase violation: begin {s} while in {s}", .{ @tagName(phase), @tagName(state.phase) });
+            state.running = false;
+            return false;
+        }
+        state.phase = phase;
+        return true;
+    }
+
+    fn endPhase(state: *State, phase: Phase) void {
+        if (state.phase != phase) {
+            log.err("protocol phase violation: end {s} while in {s}", .{ @tagName(phase), @tagName(state.phase) });
+            state.running = false;
+            state.phase = .idle;
+            return;
+        }
+        state.phase = .idle;
+    }
+
+    fn applyManageWindowState(state: *State, window: *c.river_window_v1, width: i32, height: i32) void {
+        if (state.phase != .manage) {
+            log.err("protocol phase violation: window-management state requested outside manage phase", .{});
+            state.running = false;
+            return;
+        }
+
+        c.river_window_v1_propose_dimensions(window, width, height);
+        c.river_window_v1_set_tiled(window, c.RIVER_WINDOW_V1_EDGES_NONE);
+        c.river_window_v1_set_capabilities(
+            window,
+            c.RIVER_WINDOW_V1_CAPABILITIES_WINDOW_MENU |
+                c.RIVER_WINDOW_V1_CAPABILITIES_MAXIMIZE |
+                c.RIVER_WINDOW_V1_CAPABILITIES_FULLSCREEN,
+        );
+    }
+
+    fn applyRenderWindowState(state: *State, window: *Window, x: i32, y: i32) void {
+        if (state.phase != .render) {
+            log.err("protocol phase violation: rendering state requested outside render phase", .{});
+            state.running = false;
+            return;
+        }
+
+        c.river_node_v1_set_position(window.node, x, y);
+        c.river_window_v1_show(window.obj);
+        c.river_node_v1_place_top(window.node);
     }
 
     fn firstOutput(state: *State) ?*Output {
@@ -151,6 +207,12 @@ fn wmFinished(data: ?*anyopaque, _: ?*c.river_window_manager_v1) callconv(.c) vo
 fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c) void {
     const state = getState(data);
     const wm_obj = wm orelse return;
+    if (!state.beginPhase(.manage)) {
+        c.river_window_manager_v1_manage_finish(wm_obj);
+        return;
+    }
+    defer state.endPhase(.manage);
+
     const rect = state.layoutRect();
     log.debug("manage_start windows={} outputs={} seats={} rect=({},{} {}x{})", .{
         state.windows.items.len,
@@ -173,15 +235,7 @@ fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
         const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
         const w = state.windows.items[manage_i];
 
-        // Proposing dimensions is window-management state, so it must happen in manage.
-        c.river_window_v1_propose_dimensions(w.obj, rect.width, h);
-        c.river_window_v1_set_tiled(w.obj, c.RIVER_WINDOW_V1_EDGES_NONE);
-        c.river_window_v1_set_capabilities(
-            w.obj,
-            c.RIVER_WINDOW_V1_CAPABILITIES_WINDOW_MENU |
-                c.RIVER_WINDOW_V1_CAPABILITIES_MAXIMIZE |
-                c.RIVER_WINDOW_V1_CAPABILITIES_FULLSCREEN,
-        );
+        state.applyManageWindowState(w.obj, rect.width, h);
         y_acc += h;
     }
 
@@ -200,6 +254,12 @@ fn wmManageStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
 fn wmRenderStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c) void {
     const state = getState(data);
     const wm_obj = wm orelse return;
+    if (!state.beginPhase(.render)) {
+        c.river_window_manager_v1_render_finish(wm_obj);
+        return;
+    }
+    defer state.endPhase(.render);
+
     const rect = state.layoutRect();
     const count = state.windows.items.len;
     log.debug("render_start windows={} rect=({},{} {}x{})", .{
@@ -218,12 +278,9 @@ fn wmRenderStart(data: ?*anyopaque, wm: ?*c.river_window_manager_v1) callconv(.c
         while (i < count) : (i += 1) {
             const is_last = i + 1 == count;
             const h = if (is_last) (rect.y + rect.height - y_acc) else base_h;
-            const win = state.windows.items[i];
+            const win = &state.windows.items[i];
 
-            // Render phase only updates rendering state (position/visibility/order).
-            c.river_node_v1_set_position(win.node, rect.x, y_acc);
-            c.river_window_v1_show(win.obj);
-            c.river_node_v1_place_top(win.node);
+            state.applyRenderWindowState(win, rect.x, y_acc);
 
             y_acc += h;
         }
