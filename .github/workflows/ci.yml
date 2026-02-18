@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config
+
+      - name: Install Zig 0.15.2 (official)
+        run: |
+          set -eu
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64) ZIG_ARCH="x86_64" ;;
+            aarch64) ZIG_ARCH="aarch64" ;;
+            *)
+              echo "unsupported runner arch: $ARCH" >&2
+              exit 1
+              ;;
+          esac
+          ZIG_TARBALL="zig-linux-${ZIG_ARCH}-0.15.2.tar.xz"
+          ZIG_URL="https://ziglang.org/download/0.15.2/${ZIG_TARBALL}"
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fL "$ZIG_URL" -o "$ZIG_TARBALL"
+          tar -xf "$ZIG_TARBALL"
+          echo "$PWD/zig-linux-${ZIG_ARCH}-0.15.2" >> "$GITHUB_PATH"
+
+      - name: Zig format check
+        run: zig fmt --check build.zig $(find src -type f -name '*.zig')
+
+      - name: Shell syntax check
+        run: |
+          for f in scripts/*.sh; do
+            sh -n "$f"
+          done
+
+      - name: Build
+        run: zig build
+
+      - name: Protocol timing smoke test
+        run: zig build test
