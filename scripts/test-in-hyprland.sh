@@ -109,11 +109,23 @@ echo "    app_count(default): $APP_COUNT"
 if [ -n "$APP_MARK_FILE" ]; then
   echo "    app_mark_file: $APP_MARK_FILE"
 fi
-echo "    renderer: vulkan (forced)"
+RENDERER="${WLR_RENDERER-}"
+if [ -n "$RENDERER" ]; then
+  echo "    renderer: $RENDERER (from WLR_RENDERER)"
+else
+  echo "    renderer: auto (wlroots default)"
+fi
 echo "    logs:    $RUN_LOG_DIR"
 
-exec env WLR_BACKENDS=wayland \
-  WLR_RENDERER=vulkan \
-  "$RIVER_BIN" \
-  -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $WALLPAPER_CMD $APP_CMD" \
-  >"$RIVER_LOG" 2>&1
+if [ -n "$RENDERER" ]; then
+  exec env WLR_BACKENDS=wayland \
+    WLR_RENDERER="$RENDERER" \
+    "$RIVER_BIN" \
+    -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $WALLPAPER_CMD $APP_CMD" \
+    >"$RIVER_LOG" 2>&1
+else
+  exec env WLR_BACKENDS=wayland \
+    "$RIVER_BIN" \
+    -c "$DEVILWM_BIN >\"$DEVILWM_LOG\" 2>&1 & $WALLPAPER_CMD $APP_CMD" \
+    >"$RIVER_LOG" 2>&1
+fi
