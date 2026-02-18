@@ -29,11 +29,11 @@ jobs:
               exit 1
               ;;
           esac
-          ZIG_TARBALL="zig-linux-${ZIG_ARCH}-0.15.2.tar.xz"
+          ZIG_TARBALL="zig-${ZIG_ARCH}-linux-0.15.2.tar.xz"
           ZIG_URL="https://ziglang.org/download/0.15.2/${ZIG_TARBALL}"
           curl --retry 5 --retry-delay 5 --retry-all-errors -fL "$ZIG_URL" -o "$ZIG_TARBALL"
           tar -xf "$ZIG_TARBALL"
-          echo "$PWD/zig-linux-${ZIG_ARCH}-0.15.2" >> "$GITHUB_PATH"
+          echo "$PWD/zig-${ZIG_ARCH}-linux-0.15.2" >> "$GITHUB_PATH"
 
       - name: Zig format check
         run: zig fmt --check build.zig $(find src -type f -name '*.zig')
