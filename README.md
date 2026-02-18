@@ -43,7 +43,7 @@ Package names can vary slightly by distro release. The following sets are the us
 Debian (`apt`):
 ```bash
 sudo apt update
-sudo apt install -y zig libwayland-bin libwayland-dev liblua5.1-0-dev pkg-config swaybg
+sudo apt install -y zig libwayland-bin libwayland-dev wayland-protocols liblua5.1-0-dev pkg-config swaybg
 ```
 
 Fedora (`dnf`):
