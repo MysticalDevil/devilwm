@@ -15,7 +15,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl xz-utils wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config
+          sudo apt-get install -y curl xz-utils libwayland-bin libwayland-dev liblua5.1-0-dev pkg-config
 
       - name: Install Zig 0.15.2 (official)
         run: |
