@@ -43,7 +43,7 @@ Package names can vary slightly by distro release. The following sets are the us
 Debian (`apt`):
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg
+sudo apt install -y zig libwayland-bin libwayland-dev liblua5.1-0-dev pkg-config swaybg
 ```
 
 Fedora (`dnf`):
@@ -65,6 +65,8 @@ openSUSE (`zypper`):
 ```bash
 sudo zypper install -y zig wayland-devel lua51-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
+
+For Ubuntu/Debian package naming, `wayland-scanner` is provided by `libwayland-bin`.
 
 ### River Version Policy (must be 0.4.0)
 

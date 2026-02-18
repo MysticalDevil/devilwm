@@ -37,7 +37,7 @@
 Debian（`apt`）：
 ```bash
 sudo apt update
-sudo apt install -y zig wayland-scanner libwayland-dev liblua5.1-0-dev pkg-config swaybg
+sudo apt install -y zig libwayland-bin libwayland-dev liblua5.1-0-dev pkg-config swaybg
 ```
 
 Fedora（`dnf`）：
@@ -59,6 +59,8 @@ openSUSE（`zypper`）：
 ```bash
 sudo zypper install -y zig wayland-devel lua51-devel pkgconf-pkg-config wayland-protocols-devel swaybg river
 ```
+
+在 Ubuntu/Debian 中，`wayland-scanner` 由 `libwayland-bin` 包提供。
 
 ### River 版本策略（必须是 0.4.0）
 
