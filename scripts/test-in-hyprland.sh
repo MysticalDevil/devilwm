@@ -57,6 +57,7 @@ fi
 
 APP_COUNT="${APP_COUNT:-4}"
 APP_STAGGER_SEC="${APP_STAGGER_SEC:-0.25}"
+APP_MARK_FILE="${APP_MARK_FILE:-}"
 WALLPAPER_DELAY_SEC="${WALLPAPER_DELAY_SEC:-0.5}"
 WALLPAPER_FALLBACK_COLOR="${WALLPAPER_FALLBACK_COLOR:-#9b111e}"
 LOG_DIR="${LOG_DIR:-$DEVILWM_DIR/logs}"
@@ -67,6 +68,12 @@ RIVER_LOG="$RUN_LOG_DIR/river.log"
 SWAYBG_LOG="${SWAYBG_LOG:-$RUN_LOG_DIR/swaybg.log}"
 
 default_app_cmd() {
+  if [ -n "$APP_MARK_FILE" ]; then
+    cat <<EOF
+sh -lc 'i=0; while [ "\$i" -lt "$APP_COUNT" ]; do "$TERM_CMD" >/dev/null 2>&1 & printf "started\n" >> "$APP_MARK_FILE"; i=\$((i+1)); sleep "$APP_STAGGER_SEC"; done'
+EOF
+    return 0
+  fi
   cat <<EOF
 sh -lc 'i=0; while [ "\$i" -lt "$APP_COUNT" ]; do "$TERM_CMD" >/dev/null 2>&1 & i=\$((i+1)); sleep "$APP_STAGGER_SEC"; done'
 EOF
@@ -99,6 +106,9 @@ else
   echo "    wallpaper: disabled (swaybg missing or file not found)"
 fi
 echo "    app_count(default): $APP_COUNT"
+if [ -n "$APP_MARK_FILE" ]; then
+  echo "    app_mark_file: $APP_MARK_FILE"
+fi
 echo "    renderer: vulkan (forced)"
 echo "    logs:    $RUN_LOG_DIR"
 
